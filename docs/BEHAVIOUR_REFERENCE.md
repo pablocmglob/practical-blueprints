@@ -61,3 +61,117 @@ files only.
 
 **Edge cases:** a missing required file (e.g. AGENTS.md) fails the relevant
 policy test with a clear message, not a crash.
+
+---
+
+## `server/db.js` — data layer (T2)
+
+**Inputs:** `openDatabase(dbPath?)` — path defaults to `BB_DB_PATH` env, then
+`server/blueprints.db`. Schema (blueprints / phases / steps / layer_items)
+auto-creates on boot; `PRAGMA foreign_keys = ON`.
+
+**Returns:** module exports the shared validators and query helpers:
+`validateLayerCategory(stateType, category)`, `validateTextContent(content)`,
+`getBlueprintHierarchy(db, id)` (blueprint → phases → steps → layer_items),
+`bumpVersion(db, id)`.
+
+**Side effects:** creates the DB file and directory if missing. No deletion.
+
+**Edge cases:** `validateLayerCategory` is THE single state gate — both the
+REST API and the MCP tools call the same function, so the gate cannot drift
+between entry points. Core categories (TOUCHPOINT/ROLE/TECHNOLOGY/POLICY/
+PROCESS) are valid for both state types; METRIC/CRITICAL_MOMENT/OPPORTUNITY
+only for CURRENT_STATE; RATIONALE/POTENTIAL_PITFALL only for FUTURE_STATE.
+`validateTextContent` rejects data: URIs, base64 runs (≥100 chars), control
+characters (beyond \n \t \r) and content > 10000 chars; newline/tab/CR pass.
+
+## `server/index.js` — HTTP server (T2)
+
+**Inputs:** `node server/index.js` (env: `PORT` default 8787, `BB_DB_PATH`).
+Plain node:http; serves static files from `ui/` (index.html at `/`).
+
+**Returns / endpoints:**
+- `POST /api/blueprints` `{name, state_type}` → 201 blueprint (version 1).
+- `GET /api/blueprints` → 200 array.
+- `GET /api/blueprints/{id}` → 200 full hierarchical JSON; `ETag` = version.
+- `POST /api/blueprints/{id}/phases` `{name[, display_order]}` → 201
+  `{phase, version}`.
+- `POST /api/blueprints/{id}/steps` `{phase_id, title, is_visible[,
+  display_order]}` → 201 `{step, version}`.
+- `POST /api/blueprints/{id}/layer-items` `{step_id, layer_category, content[
+  , owner_id]}` → 201 `{layer_item, version}`.
+- `DELETE /api/blueprints/{id}/(phases|steps|layer-items)/{childId}` → 200
+  `{deleted, version}`.
+- `GET /api/blueprints/{id}/events` → SSE stream (`event:` + `data:` JSON per
+  mutation).
+
+**Side effects:** every successful mutation bumps the blueprint `version`,
+broadcasts a JSON event to all SSE subscribers of that blueprint, and touches
+`updated_at`.
+
+**Edge cases:**
+- *Optimistic concurrency:* mutations require `If-Match: <version>` (or
+  `body.version`); missing → 428 with `current_version`; stale → 409 with
+  `current_version`; success bumps version and returns the new one. 400
+  validation errors on layer-items also carry `current_version` so clients
+  can re-sync.
+- *State gate:* category-vs-state_type mismatch → 400 (shared validator).
+- *Text-only:* data: URI / base64 blob / control chars → 400.
+- Unknown route → 404; invalid JSON body → 400; body > 1 MB → 413.
+- Static path traversal outside `ui/` → 403.
+
+## `server/mcp.js` — MCP server over stdio (T2)
+
+**Inputs:** `node server/mcp.js` — newline-delimited JSON-RPC 2.0 on stdio;
+methods `initialize`, `tools/list`, `tools/call` (plus
+`notifications/initialized`, ignored). Uses the same database as the HTTP
+server (`BB_DB_PATH` / `server/blueprints.db`).
+
+**Returns:** exactly three tools:
+- `get_blueprint_schema(blueprint_id)` → full hierarchical JSON.
+- `add_layer_item(step_id, layer_category, content[, owner_id])` → validates
+  category vs the parent blueprint's state_type with the SAME shared
+  validator as the REST API; mismatch → JSON-RPC error code `-32600` with
+  message `"400 Bad Request: ..."`; missing step → `-32600` "400 Bad
+  Request: step N not found"; success → `{layer_item, version}` and an SSE
+  broadcast (`source: "mcp"`) so live UIs update without refresh.
+- `export_action_plan(blueprint_id)` → `{blueprint_id, blueprint_name,
+  state_type, entries[]}`; every CRITICAL_MOMENT / OPPORTUNITY /
+  POTENTIAL_PITFALL item becomes one entry bundling `item`, `step` (id,
+  title, is_visible, display_order, phase_name) and `sibling_items` (ALL
+  other layer items on that step).
+
+**Side effects:** `add_layer_item` inserts and bumps the blueprint version
+(observable by the REST API's next If-Match).
+
+**Edge cases:** unknown tool → `-32602`; HTTP-400-semantics failures map to
+`-32600` with the "400 Bad Request: ..." message; 404s also map to `-32600`;
+other errors → `-32603`. If the HTTP server is not running, SSE broadcast is
+a no-op (MCP-only usage still works).
+
+## `server/seed.js` — demo data (T2)
+
+**Inputs:** `node server/seed.js` (env: `BB_DB_PATH`).
+
+**Returns:** exit 0; prints the created blueprint id.
+
+**Side effects:** creates a CURRENT_STATE demo blueprint ("Demo — Coffee
+Shop Customer Visit") with 2 phases, 4 steps (one backstage) and 14 layer
+items across core + current-only categories.
+
+**Edge cases:** idempotent — if the demo blueprint name already exists, it
+prints and exits without duplicating.
+
+## `tests/smoke_backend.js` — backend smoke test (T2)
+
+**Inputs:** `node tests/smoke_backend.js`. Boots the server on a random
+scratch port + scratch DB (no repo files touched).
+
+**Returns:** exit 0 when all checks pass; exit 1 listing failures.
+
+**Side effects:** writes only to a temp dir; kills the server at the end.
+
+**Edge cases:** covers create/list/get, phase/step/layer-item creation,
+stale If-Match → 409, state gate 400 both directions, data-URI and control
+char rejection, newline/tab acceptance, SSE broadcast, ETag=version, DELETE,
+404s, and all three MCP tools over stdio.

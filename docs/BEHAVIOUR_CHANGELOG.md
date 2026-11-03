@@ -14,3 +14,21 @@ state it, and any deviation from the plan.
 - Tests added: policy tests (see `tests/policy/`). Red-first records are in
   each implementer report; the drift test and the frozen-archive test were
   verified red before their subjects existed.
+
+- **T2 — Backend & MCP server (T-101-A).** Added the data layer
+  (`server/db.js`, node:sqlite, schema auto-create), the HTTP server
+  (`server/index.js`: static `ui/`, REST CRUD under `/api/blueprints`,
+  optimistic concurrency via If-Match/body.version → 409 with
+  `current_version`, text-only enforcement, per-blueprint SSE stream with
+  broadcast on every mutation), the stdio JSON-RPC MCP server
+  (`server/mcp.js`: `get_blueprint_schema`, `add_layer_item` with the shared
+  state gate mapped to `-32600` "400 Bad Request: ...", `export_action_plan`
+  bundling parent step + all sibling items), and the idempotent demo seed
+  (`server/seed.js`). The layer-category-vs-state_type gate lives in ONE
+  shared function (`validateLayerCategory`) used by both REST and MCP.
+- Tests added: `tests/smoke_backend.js` (25 checks, red-first: failed with
+  "Cannot find module server/index.js" before implementation). Policy suite
+  30/31 — the single failure (`gen_agents --check` drift) is pre-existing on
+  the clean checkout (CRLF artifact) and belongs to the T1 file set.
+- Docs: BEHAVIOUR_REFERENCE.md entries for db.js, index.js, mcp.js, seed.js,
+  smoke_backend.js.
