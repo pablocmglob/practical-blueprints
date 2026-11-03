@@ -10,3 +10,11 @@
 - Allocate ids by FILE CREATION: probe → create `.tasks/task-<id>.md` →
   verify exactly one file with that name.
 - Done tasks move to `.tasks/done/`. `.tasks/archive/` is frozen read-only.
+
+## Queue
+
+| id | title | state | worktree |
+|----|-------|-------|----------|
+| T2 | Backend & MCP server (T-101-A) | In Progress | `coda/backend-mcp` |
+| T3 | Frontend canvas UI (T-101-B) | In Progress | `coda/ui-canvas` |
+| T4 | Adversary & QA gate (T-101-C) | In Progress | `coda/qa-gate` |
