@@ -1,0 +1,10 @@
+# Scratch / local state
+.coda/tmp/
+*.log
+node_modules/
+__pycache__/
+.DS_Store
+Thumbs.db
+
+# Worktrees are local scratch, never committed
+.wt/

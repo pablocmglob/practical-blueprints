@@ -1,0 +1,4 @@
+{
+  "_comment": "Registry of switches that ship OFF by default. A switch ships ON by default (standing rule 3). An entry here is required for every OFF default: reason, activate_when, review. A policy test fails on an OFF default without an entry, and on an entry for a switch that is no longer OFF.",
+  "flags": {}
+}
