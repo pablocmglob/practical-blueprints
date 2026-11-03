@@ -61,3 +61,43 @@ files only.
 
 **Edge cases:** a missing required file (e.g. AGENTS.md) fails the relevant
 policy test with a clear message, not a crash.
+
+## `ui/` — Canvas UI (T3)
+
+Static frontend served by the backend at `/` (plain HTML/CSS/JS, no
+frameworks, no build step, no external dependencies).
+
+**Inputs:** the read-only API shapes — `GET /api/blueprints`,
+`GET /api/blueprints/{id}` (hierarchical: blueprint → phases → steps →
+layer_items; `step.is_visible` true = frontstage), `POST
+/api/blueprints/{id}/layer-items` with `If-Match: <version>`, and the SSE
+stream `GET /api/blueprints/{id}/events`.
+
+**Returns (what it renders):** a single linear canvas — X axis = phases
+grouped over steps in sequence, Y axis = the ten layer categories
+(TOUCHPOINT, ROLE, TECHNOLOGY, POLICY, PROCESS, METRIC, CRITICAL_MOMENT,
+OPPORTUNITY, RATIONALE, POTENTIAL_PITFALL). Step-column × category-row
+intersections are drop-zones for text sticky notes. Frontstage steps render
+light, backstage dark; categories are strictly color-coded (Roles=Green,
+Touchpoints=Blue, Policies=Orange, Critical Moments=Red, Opportunities=
+Yellow, plus fixed colors for the rest). Columns widen as items stack
+(heat map, capped at 2.5× base width). Sticky top header (phase/step names)
+and sticky left row labels (category names) with horizontal/vertical
+scrolling for large blueprints.
+
+**Side effects:** submitting a sidebar prompt or dropping text on a cell
+POSTs a layer item with the current version as `If-Match`; the response's
+new version is tracked for the next mutation. SSE events trigger a
+re-fetch + re-render without page refresh.
+
+**Edge cases:** text-only enforcement — file drag-drop and non-text paste
+are intercepted and rejected with a visible toast; empty/oversized (>2000
+chars) note text is rejected client-side; unknown layer categories in API
+data are skipped; missing/failed API → empty-state message and offline
+status, no crash. No branching UI, graphs, or variant toggles exist
+anywhere; no file inputs exist anywhere.
+
+**Verification:** `node --test tests/ui/` (plain Node, no dependencies).
+`tests/ui/mock-server.js` stubs the API contract (including SSE) and can
+also be run standalone — `node tests/ui/mock-server.js [port]` — to serve
+`ui/` for manual browser checks.

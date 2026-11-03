@@ -1,0 +1,375 @@
+/* Business Blueprints — Canvas UI (T3)
+   Plain CSS, no frameworks, no external dependencies. */
+
+:root {
+  /* Layer category colors (strict coding per ui_spec.md §2) */
+  --cat-touchpoint: #2563eb;      /* Blue   */
+  --cat-role: #16a34a;            /* Green  */
+  --cat-technology: #7c3aed;      /* Violet */
+  --cat-policy: #ea580c;          /* Orange */
+  --cat-process: #0d9488;         /* Teal   */
+  --cat-metric: #0891b2;          /* Cyan   */
+  --cat-critical-moment: #dc2626; /* Red    */
+  --cat-opportunity: #eab308;     /* Yellow */
+  --cat-rationale: #64748b;       /* Slate  */
+  --cat-potential-pitfall: #be185d; /* Magenta */
+
+  --frontstage-bg: #ffffff;
+  --frontstage-header: #f1f5f9;
+  --backstage-bg: #1e293b;
+  --backstage-header: #0f172a;
+  --backstage-text: #e2e8f0;
+
+  --sidebar-bg: #f8fafc;
+  --border: #cbd5e1;
+  --text: #0f172a;
+  --muted: #64748b;
+  --accent: #2563eb;
+  --error: #dc2626;
+  --ok: #16a34a;
+
+  --header-height: 96px;
+  --row-label-width: 170px;
+  --row-height: 96px;
+  --cell-min-width: 180px;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  font-family: "Segoe UI", system-ui, sans-serif;
+  color: var(--text);
+  background: #e2e8f0;
+}
+
+#app {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* ============ Sidebar (checklist) ============ */
+
+#sidebar {
+  width: 300px;
+  min-width: 300px;
+  background: var(--sidebar-bg);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+#sidebar header {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+#sidebar header h1 {
+  font-size: 15px;
+  margin: 0 0 2px 0;
+}
+
+#sidebar header .blueprint-name {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+#sidebar .sidebar-hint {
+  padding: 8px 14px;
+  font-size: 12px;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+}
+
+#checklist {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 0;
+}
+
+.checklist-category {
+  padding: 6px 14px;
+}
+
+.checklist-category .category-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.category-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  flex: none;
+}
+
+.checklist-category .category-count {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.checklist-category .category-prompt {
+  font-size: 12px;
+  color: var(--muted);
+  margin: 2px 0 4px 20px;
+}
+
+/* Inline prompt form, shown when a step is selected */
+.prompt-form {
+  margin: 4px 0 8px 20px;
+  display: none;
+}
+
+.checklist-category.prompt-open .prompt-form { display: block; }
+
+.prompt-form textarea {
+  width: 100%;
+  min-height: 54px;
+  font: inherit;
+  font-size: 12px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  resize: vertical;
+}
+
+.prompt-form .prompt-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.prompt-form button {
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.prompt-form button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.prompt-form button.primary:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* ============ Canvas ============ */
+
+#canvas-area {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+#canvas-status {
+  padding: 6px 12px;
+  font-size: 12px;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+  background: #fff;
+  display: flex;
+  gap: 16px;
+  align-items: center;
+}
+
+#canvas-status .connection {
+  font-weight: 600;
+}
+
+#canvas-status .connection.live { color: var(--ok); }
+#canvas-status .connection.offline { color: var(--error); }
+
+#toast-region {
+  position: fixed;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+}
+
+.toast {
+  background: #0f172a;
+  color: #fff;
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 13px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  max-width: 480px;
+}
+
+.toast.error { background: var(--error); }
+.toast.success { background: var(--ok); }
+
+/* Scroll container: sticky header row + sticky left labels */
+#grid-scroll {
+  flex: 1;
+  overflow: auto;
+  position: relative;
+}
+
+#blueprint-grid {
+  display: grid;
+  min-width: max-content;
+}
+
+/* Header cells (phase band + step names) */
+.grid-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: var(--frontstage-header);
+  border-bottom: 2px solid var(--border);
+  border-right: 1px solid var(--border);
+  padding: 6px 8px;
+  font-size: 12px;
+}
+
+.grid-header.corner {
+  left: 0;
+  z-index: 30;
+  position: sticky;
+  background: var(--frontstage-header);
+}
+
+.phase-band {
+  background: #e2e8f0;
+  font-weight: 700;
+  font-size: 12px;
+  text-align: center;
+  border-bottom: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  padding: 6px 8px;
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+
+.phase-band.corner {
+  left: 0;
+  z-index: 30;
+  position: sticky;
+}
+
+.step-header {
+  font-weight: 600;
+  text-align: center;
+}
+
+.step-header .step-visibility {
+  display: block;
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* Backstage (hidden) steps: dark */
+.step-header.backstage,
+.column.backstage {
+  background: var(--backstage-bg);
+  color: var(--backstage-text);
+}
+
+.step-header.backstage .step-visibility { color: #94a3b8; }
+
+/* Row label cells (category names) — sticky left */
+.row-label {
+  position: sticky;
+  left: 0;
+  z-index: 10;
+  background: var(--sidebar-bg);
+  border-right: 2px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  padding: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Data cells: step-column × category-row intersections */
+.column {
+  display: flex;
+  flex-direction: column;
+}
+
+.cell {
+  min-height: var(--row-height);
+  border-bottom: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: var(--cell-min-width);
+}
+
+.cell.drop-target {
+  outline: 2px dashed var(--accent);
+  outline-offset: -2px;
+  background: rgba(37, 99, 235, 0.06);
+}
+
+.cell.drag-invalid {
+  outline: 2px dashed var(--error);
+  outline-offset: -2px;
+  background: rgba(220, 38, 38, 0.08);
+}
+
+/* Sticky notes */
+.sticky-note {
+  border-left: 4px solid;
+  border-radius: 4px;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+  padding: 6px 8px;
+  font-size: 12px;
+  line-height: 1.35;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+.sticky-note .note-category {
+  display: block;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 2px;
+  opacity: 0.85;
+}
+
+/* Column growth = heat map: wider column when many items stack */
+.column { min-width: var(--cell-min-width); }
+.column .cell { width: 100%; }
+
+/* Empty-state message */
+#empty-state {
+  padding: 40px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 14px;
+}

@@ -2,9 +2,41 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Business Blueprints — Canvas</title>
+<link rel="stylesheet" href="styles.css">
 </head>
 <body>
-<p>Canvas placeholder — full UI under construction (T3).</p>
+<div id="app">
+  <aside id="sidebar">
+    <header>
+      <h1>Blueprint Canvas</h1>
+      <div class="blueprint-name" id="blueprint-name">Loading…</div>
+    </header>
+    <div class="sidebar-hint">
+      Select a step on the canvas, then answer a category prompt to add a
+      text sticky note. Text only — file uploads are not supported.
+    </div>
+    <div id="checklist" role="list" aria-label="Layer category checklist"></div>
+  </aside>
+
+  <main id="canvas-area">
+    <div id="canvas-status">
+      <span class="connection offline" id="connection-status">connecting…</span>
+      <span id="version-label"></span>
+      <span id="selection-label"></span>
+    </div>
+    <div id="grid-scroll">
+      <div id="blueprint-grid" aria-label="Blueprint canvas grid"></div>
+      <div id="empty-state" hidden>
+        No blueprint data available. The backend may still be loading.
+      </div>
+    </div>
+  </main>
+</div>
+
+<div id="toast-region" aria-live="polite"></div>
+
+<script src="app.js"></script>
 </body>
 </html>
