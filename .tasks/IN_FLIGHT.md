@@ -15,6 +15,6 @@
 
 | id | title | state | worktree |
 |----|-------|-------|----------|
-| T2 | Backend & MCP server (T-101-A) | In Progress | `coda/backend-mcp` |
-| T3 | Frontend canvas UI (T-101-B) | In Progress | `coda/ui-canvas` |
-| T4 | Adversary & QA gate (T-101-C) | In Progress | `coda/qa-gate` |
+| T2 | Backend & MCP server (T-101-A) | Done | `coda/backend-mcp` |
+| T3 | Frontend canvas UI (T-101-B) | Done | `coda/ui-canvas` |
+| T4 | Adversary & QA gate (T-101-C) | Done | `coda/qa-gate` |

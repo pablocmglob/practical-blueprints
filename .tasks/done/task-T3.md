@@ -1,6 +1,6 @@
 # T3 — Frontend canvas UI (T-101-B)
 
-State: In Progress
+State: Done
 Owner: ux-implementer (worktree `coda/ui-canvas`)
 Created: 2026-11-03
 Spec: `docs/implementation/ui_spec.md` (strict architectural guideline)

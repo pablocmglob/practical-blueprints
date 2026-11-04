@@ -1,6 +1,6 @@
 # T2 — Backend & MCP server (T-101-A)
 
-State: In Progress
+State: Done
 Owner: plan-implementer (worktree `coda/backend-mcp`)
 Created: 2026-11-03
 Spec: `docs/implementation/backend_spec.md` (strict architectural guideline)

@@ -1,6 +1,6 @@
 # T4 — Adversary & QA gate (T-101-C)
 
-State: In Progress
+State: Done
 Owner: adversary (worktree `coda/qa-gate`)
 Created: 2026-11-03
 Spec: `docs/implementation/qa_spec.md` (strict architectural guideline)
