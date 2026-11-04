@@ -105,6 +105,9 @@ async function startServer({
       PORT: String(port),
       HOST: '127.0.0.1',
       DATA_DIR: dataDir,
+      // The real server reads BB_DB_PATH (server/db.js); point it at the
+      // temp dir so tests never touch the repo's own database.
+      BB_DB_PATH: path.join(dataDir, 'blueprints.db'),
       ...env,
     },
     stdio: ['ignore', 'pipe', 'pipe'],

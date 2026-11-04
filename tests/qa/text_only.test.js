@@ -6,7 +6,7 @@ const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const { startServer } = require('./helpers/server');
 const { startMcp } = require('./helpers/mcp');
-const { createBlueprint, addPhase, addStep, addLayerItemRaw, fixtureEntry } = require('./helpers/seed');
+const { createBlueprint, addPhase, addStep, addLayerItemRaw, currentVersion, fixtureEntry } = require('./helpers/seed');
 
 let api;
 let server;
@@ -26,7 +26,7 @@ before(async () => {
   const phase = await addPhase(api, bp1.id, 'Discovery');
   const step = await addStep(api, bp1.id, { phase_id: phase.id, title: 'Shadowing' });
   stepId = step.id;
-  mcp = await startMcp({ QA_SERVER_ENTRY: fixtureEntry(), DATA_DIR: server.dataDir });
+  mcp = await startMcp({ QA_SERVER_ENTRY: fixtureEntry(), BB_DB_PATH: require('node:path').join(server.dataDir, 'blueprints.db'), BB_NOTIFY_PORT: String(server.port) });
 });
 
 after(async () => {
@@ -39,7 +39,7 @@ test('REST: data:image URI content is rejected with 400', async () => {
     step_id: stepId,
     layer_category: 'TOUCHPOINT',
     content: PNG_DATA_URI,
-    version: bp1.version,
+    version: await currentVersion(api, bp1.id),
   });
   assert.equal(res.status, 400, `expected 400, got ${res.status}: ${res.text}`);
 });
@@ -49,7 +49,7 @@ test('REST: data:application/pdf URI content is rejected with 400', async () => 
     step_id: stepId,
     layer_category: 'TOUCHPOINT',
     content: PDF_DATA_URI,
-    version: bp1.version,
+    version: await currentVersion(api, bp1.id),
   });
   assert.equal(res.status, 400, `expected 400, got ${res.status}: ${res.text}`);
 });
@@ -59,7 +59,7 @@ test('REST: raw base64 blob content is rejected with 400', async () => {
     step_id: stepId,
     layer_category: 'TOUCHPOINT',
     content: RAW_BASE64,
-    version: bp1.version,
+    version: await currentVersion(api, bp1.id),
   });
   assert.equal(res.status, 400, `expected 400, got ${res.status}: ${res.text}`);
 });
@@ -69,7 +69,7 @@ test('REST: plain text content still passes', async () => {
     step_id: stepId,
     layer_category: 'TOUCHPOINT',
     content: 'Customer calls the helpdesk and waits on hold.',
-    version: bp1.version,
+    version: await currentVersion(api, bp1.id),
   });
   assert.equal(res.status, 201, `expected 201, got ${res.status}: ${res.text}`);
 });

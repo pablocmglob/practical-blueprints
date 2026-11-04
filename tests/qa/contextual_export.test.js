@@ -7,7 +7,7 @@ const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const { startServer } = require('./helpers/server');
 const { startMcp } = require('./helpers/mcp');
-const { createBlueprint, addPhase, addStep, addLayerItem, fixtureEntry } = require('./helpers/seed');
+const { createBlueprint, addPhase, addStep, addLayerItem, currentVersion, fixtureEntry } = require('./helpers/seed');
 
 let api;
 let server;
@@ -24,17 +24,17 @@ before(async () => {
 
   const s1 = await addStep(api, bp1.id, { phase_id: phase.id, title: 'Customer onboarding call' });
   stepHot = s1.id;
-  await addLayerItem(api, bp1.id, { step_id: stepHot, layer_category: 'CRITICAL_MOMENT', content: 'Customer abandoned the call', version: bp1.version });
-  await addLayerItem(api, bp1.id, { step_id: stepHot, layer_category: 'ROLE', content: 'Onboarding agent', version: bp1.version });
-  await addLayerItem(api, bp1.id, { step_id: stepHot, layer_category: 'TECHNOLOGY', content: 'Legacy CRM', version: bp1.version });
-  await addLayerItem(api, bp1.id, { step_id: stepHot, layer_category: 'TOUCHPOINT', content: 'Welcome call', version: bp1.version });
+  await addLayerItem(api, bp1.id, { step_id: stepHot, layer_category: 'CRITICAL_MOMENT', content: 'Customer abandoned the call', version: await currentVersion(api, bp1.id) });
+  await addLayerItem(api, bp1.id, { step_id: stepHot, layer_category: 'ROLE', content: 'Onboarding agent', version: await currentVersion(api, bp1.id) });
+  await addLayerItem(api, bp1.id, { step_id: stepHot, layer_category: 'TECHNOLOGY', content: 'Legacy CRM', version: await currentVersion(api, bp1.id) });
+  await addLayerItem(api, bp1.id, { step_id: stepHot, layer_category: 'TOUCHPOINT', content: 'Welcome call', version: await currentVersion(api, bp1.id) });
 
   const s2 = await addStep(api, bp1.id, { phase_id: phase.id, title: 'Renewal negotiation' });
   stepCold = s2.id;
-  await addLayerItem(api, bp1.id, { step_id: stepCold, layer_category: 'OPPORTUNITY', content: 'Multi-year discount upsell', version: bp1.version });
-  await addLayerItem(api, bp1.id, { step_id: stepCold, layer_category: 'POLICY', content: 'Discount approval matrix', version: bp1.version });
+  await addLayerItem(api, bp1.id, { step_id: stepCold, layer_category: 'OPPORTUNITY', content: 'Multi-year discount upsell', version: await currentVersion(api, bp1.id) });
+  await addLayerItem(api, bp1.id, { step_id: stepCold, layer_category: 'POLICY', content: 'Discount approval matrix', version: await currentVersion(api, bp1.id) });
 
-  mcp = await startMcp({ QA_SERVER_ENTRY: fixtureEntry(), DATA_DIR: server.dataDir });
+  mcp = await startMcp({ QA_SERVER_ENTRY: fixtureEntry(), BB_DB_PATH: require('node:path').join(server.dataDir, 'blueprints.db'), BB_NOTIFY_PORT: String(server.port) });
 });
 
 after(async () => {
@@ -50,14 +50,14 @@ test('export_action_plan returns insights for both seeded steps', async () => {
     : res.text;
   const text = Array.isArray(payload.content) ? payload.content.map((c) => c.text || '').join('\n') : String(payload);
   const parsed = JSON.parse(text);
-  const insights = parsed.insights || parsed;
+  const insights = parsed.insights || parsed.entries || parsed;
   assert.ok(Array.isArray(insights) && insights.length >= 2, `expected >= 2 insights, got: ${text.slice(0, 300)}`);
 });
 
 test('each insight bundles parent step details', async () => {
   const res = await mcp.callTool('export_action_plan', { blueprint_id: bp1.id });
   const parsed = JSON.parse(Array.isArray(res.result.content) ? res.result.content.map((c) => c.text).join('\n') : res.text);
-  const insights = parsed.insights || parsed;
+  const insights = parsed.insights || parsed.entries || parsed;
   for (const insight of insights) {
     const step = insight.step || insight.parent_step || (insight.insight && insight.insight.step);
     assert.ok(step, `insight missing parent step: ${JSON.stringify(insight).slice(0, 300)}`);
@@ -68,7 +68,7 @@ test('each insight bundles parent step details', async () => {
 test('each insight bundles ALL sibling layer items of its parent step', async () => {
   const res = await mcp.callTool('export_action_plan', { blueprint_id: bp1.id });
   const parsed = JSON.parse(Array.isArray(res.result.content) ? res.result.content.map((c) => c.text).join('\n') : res.text);
-  const insights = parsed.insights || parsed;
+  const insights = parsed.insights || parsed.entries || parsed;
 
   const hot = insights.find((i) => {
     const step = i.step || i.parent_step || (i.insight && i.insight.step);

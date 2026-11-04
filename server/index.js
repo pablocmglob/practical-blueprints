@@ -48,6 +48,21 @@ function broadcast(blueprintId, event) {
 
 // --- Helpers -------------------------------------------------------------------
 
+/**
+ * Internal cross-process notify (POST /api/blueprints/{id}/notify).
+ * The MCP stdio server runs in its own process; when it writes, it POSTs the
+ * event here so this process's SSE subscribers receive it. Not part of the
+ * public API contract.
+ */
+function handleNotify(req, res, blueprintId) {
+  readBody(req)
+    .then((event) => {
+      broadcast(blueprintId, event);
+      sendJson(res, 200, { notified: true });
+    })
+    .catch(() => sendJson(res, 400, { error: "invalid notify payload" }));
+}
+
 class HttpError extends Error {
   constructor(status, message, extra) {
     super(message);
@@ -317,6 +332,10 @@ const server = http.createServer((req, res) => {
         if (rest === "steps" && req.method === "POST") return await handleCreateStep(req, res, id);
         if (rest === "layer-items" && req.method === "POST") return await handleCreateLayerItem(req, res, id);
         if (rest === "events" && req.method === "GET") return handleSse(req, res, id);
+        // Internal cross-process notify: the MCP stdio server POSTs here so
+        // its writes reach this process's SSE subscribers. Not part of the
+        // public API contract.
+        if (rest === "notify" && req.method === "POST") return handleNotify(req, res, id);
         const deleteMatch = /^(phases|steps|layer-items)\/(\d+)$/.exec(rest);
         if (deleteMatch && req.method === "DELETE") {
           return await handleDelete(req, res, id, deleteMatch[1], deleteMatch[2]);

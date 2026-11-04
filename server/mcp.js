@@ -15,6 +15,7 @@
 "use strict";
 
 const readline = require("readline");
+const http = require("http");
 const {
   openDatabase,
   validateLayerCategory,
@@ -26,14 +27,31 @@ const {
 } = require("./db");
 
 // Reuse the HTTP server's broadcast so MCP-injected changes reach SSE
-// subscribers. The HTTP server may not be running (MCP-only usage), in which
-// case broadcast is a no-op against an empty subscriber map.
+// subscribers. The MCP server runs in its own process, so it cannot share the
+// HTTP server's in-memory subscriber map; instead it POSTs the event to the
+// HTTP server's internal notify route. If the HTTP server is not running
+// (MCP-only usage), the POST fails and is silently ignored.
 let broadcast = () => {};
-try {
-  ({ broadcast } = require("./index"));
-} catch {
-  /* HTTP server not available; SSE broadcast disabled */
+const NOTIFY_PORT = process.env.BB_NOTIFY_PORT || process.env.PORT || "8787";
+function broadcastViaHttp(blueprintId, event) {
+  const data = JSON.stringify(event);
+  const req = http.request(
+    `http://127.0.0.1:${NOTIFY_PORT}/api/blueprints/${Number(blueprintId)}/notify`,
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "content-length": Buffer.byteLength(data),
+      },
+    },
+    (res) => {
+      res.resume(); // drain
+    }
+  );
+  req.on("error", () => {}); // HTTP server not running — no-op
+  req.end(data);
 }
+broadcast = broadcastViaHttp;
 
 const db = openDatabase();
 

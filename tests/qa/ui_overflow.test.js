@@ -106,7 +106,7 @@ test('generated 50-step / 20-item fixture renders against the grid contract', ()
 
   // The UI must consume this shape: find the render entry and confirm it
   // iterates steps and layer items (i.e. no hardcoded step/item cap).
-  const jsFiles = files.filter((f) => /\.(js|html)$/i.test(f.path));
+  const jsFiles = files.filter((f) => /\.(js|html|css)$/i.test(f.path));
   const blob = jsFiles.map((f) => f.text).join('\n');
   assert.match(blob, /steps?/i, 'UI never references steps');
   assert.match(blob, /layer[_ ]?items?/i, 'UI never references layer items');

@@ -119,9 +119,9 @@ class McpClient {
   }
 }
 
-// Default MCP entry: the real server doubles as the MCP stdio server.
+// Default MCP entry: the dedicated stdio MCP server (server/mcp.js).
 function mcpEntry() {
-  return process.env.QA_MCP_ENTRY || path.join(REPO_ROOT, 'server', 'index.js');
+  return process.env.QA_MCP_ENTRY || path.join(REPO_ROOT, 'server', 'mcp.js');
 }
 
 function startMcp(env = {}) {

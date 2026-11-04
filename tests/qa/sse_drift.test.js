@@ -21,7 +21,7 @@ before(async () => {
   const phase = await addPhase(api, bp1.id, 'Support');
   const step = await addStep(api, bp1.id, { phase_id: phase.id, title: 'Ticket triage' });
   stepId = step.id;
-  mcp = await startMcp({ QA_SERVER_ENTRY: fixtureEntry(), DATA_DIR: server.dataDir });
+  mcp = await startMcp({ QA_SERVER_ENTRY: fixtureEntry(), BB_DB_PATH: require('node:path').join(server.dataDir, 'blueprints.db'), BB_NOTIFY_PORT: String(server.port) });
 });
 
 after(async () => {

@@ -6,7 +6,7 @@
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const { startServer } = require('./helpers/server');
-const { createBlueprint, addPhase, addStep, addLayerItemRaw, fixtureEntry } = require('./helpers/seed');
+const { createBlueprint, addPhase, addStep, addLayerItemRaw, currentVersion, fixtureEntry } = require('./helpers/seed');
 
 let api;
 let server;
@@ -27,8 +27,8 @@ after(async () => {
 });
 
 test('racing mutations: stale If-Match gets 409, fresh retry succeeds', async () => {
-  // Two writers both read version 1, then race.
-  const staleVersion = bp1.version; // 1
+  // Two writers both read the current version, then race.
+  const staleVersion = await currentVersion(api, bp1.id);
   const writeA = addLayerItemRaw(api, bp1.id, {
     step_id: stepId,
     layer_category: 'TOUCHPOINT',

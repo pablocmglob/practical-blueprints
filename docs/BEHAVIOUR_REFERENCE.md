@@ -83,7 +83,8 @@ REST API and the MCP tools call the same function, so the gate cannot drift
 between entry points. Core categories (TOUCHPOINT/ROLE/TECHNOLOGY/POLICY/
 PROCESS) are valid for both state types; METRIC/CRITICAL_MOMENT/OPPORTUNITY
 only for CURRENT_STATE; RATIONALE/POTENTIAL_PITFALL only for FUTURE_STATE.
-`validateTextContent` rejects data: URIs, base64 runs (≥100 chars), control
+`validateTextContent` rejects data: URIs, base64 runs (≥40 chars, no
+spaces), control
 characters (beyond \n \t \r) and content > 10000 chars; newline/tab/CR pass.
 
 ## `server/index.js` — HTTP server (T2)
@@ -105,6 +106,9 @@ Plain node:http; serves static files from `ui/` (index.html at `/`).
   `{deleted, version}`.
 - `GET /api/blueprints/{id}/events` → SSE stream (`event:` + `data:` JSON per
   mutation).
+- `POST /api/blueprints/{id}/notify` → internal cross-process route (not part
+  of the public contract): the MCP stdio server POSTs mutation events here so
+  they reach this process's SSE subscribers.
 
 **Side effects:** every successful mutation bumps the blueprint `version`,
 broadcasts a JSON event to all SSE subscribers of that blueprint, and touches

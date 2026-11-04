@@ -8,7 +8,7 @@ const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const { startServer } = require('./helpers/server');
 const { startMcp } = require('./helpers/mcp');
-const { createBlueprint, addPhase, addStep, addLayerItemRaw, fixtureEntry } = require('./helpers/seed');
+const { createBlueprint, addPhase, addStep, addLayerItemRaw, currentVersion, fixtureEntry } = require('./helpers/seed');
 
 let api;
 let server;
@@ -32,7 +32,7 @@ before(async () => {
   const step2 = await addStep(api, currentBp.id, { phase_id: phase2.id, title: 'Interviews' });
   currentStepId = step2.id;
 
-  mcp = await startMcp({ QA_SERVER_ENTRY: fixtureEntry(), DATA_DIR: server.dataDir });
+  mcp = await startMcp({ QA_SERVER_ENTRY: fixtureEntry(), BB_DB_PATH: require('node:path').join(server.dataDir, 'blueprints.db'), BB_NOTIFY_PORT: String(server.port) });
 });
 
 after(async () => {
@@ -45,7 +45,7 @@ test('REST: CRITICAL_MOMENT on FUTURE_STATE is blocked with 400', async () => {
     step_id: futureStepId,
     layer_category: 'CRITICAL_MOMENT',
     content: 'moment of truth',
-    version: futureBp.version,
+    version: await currentVersion(api, futureBp.id),
   });
   assert.equal(res.status, 400, `expected 400, got ${res.status}: ${res.text}`);
 });
@@ -55,7 +55,7 @@ test('REST: RATIONALE on CURRENT_STATE is blocked with 400', async () => {
     step_id: currentStepId,
     layer_category: 'RATIONALE',
     content: 'why we change',
-    version: currentBp.version,
+    version: await currentVersion(api, currentBp.id),
   });
   assert.equal(res.status, 400, `expected 400, got ${res.status}: ${res.text}`);
 });
@@ -65,7 +65,7 @@ test('REST: POTENTIAL_PITFALL on CURRENT_STATE is blocked with 400', async () =>
     step_id: currentStepId,
     layer_category: 'POTENTIAL_PITFALL',
     content: 'pitfall',
-    version: currentBp.version,
+    version: await currentVersion(api, currentBp.id),
   });
   assert.equal(res.status, 400, `expected 400, got ${res.status}: ${res.text}`);
 });
@@ -75,7 +75,7 @@ test('REST: valid categories pass on matching state', async () => {
     step_id: futureStepId,
     layer_category: 'RATIONALE',
     content: 'valid rationale',
-    version: futureBp.version,
+    version: await currentVersion(api, futureBp.id),
   });
   assert.equal(okFuture.status, 201, `expected 201, got ${okFuture.status}: ${okFuture.text}`);
 
@@ -83,7 +83,7 @@ test('REST: valid categories pass on matching state', async () => {
     step_id: currentStepId,
     layer_category: 'CRITICAL_MOMENT',
     content: 'valid critical moment',
-    version: currentBp.version,
+    version: await currentVersion(api, currentBp.id),
   });
   assert.equal(okCurrent.status, 201, `expected 201, got ${okCurrent.status}: ${okCurrent.text}`);
 });

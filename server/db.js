@@ -58,8 +58,9 @@ function validateTextContent(content) {
   if (/data:[\w.+-]+\/[\w.+-]+;base64,/i.test(content)) {
     return { ok: false, reason: "data: URIs (binary content) are not allowed; text only" };
   }
-  // Long base64-looking runs (>= 100 chars of base64 alphabet, no spaces)
-  if (/[A-Za-z0-9+/]{100,}={0,2}/.test(content)) {
+  // Base64-looking runs (>= 40 chars of base64 alphabet, no spaces) —
+  // catches binary blobs of any realistic size, not just multi-line ones.
+  if (/[A-Za-z0-9+/]{40,}={0,2}/.test(content)) {
     return { ok: false, reason: "base64 blobs are not allowed; text only" };
   }
   // Control characters beyond \n \t \r
