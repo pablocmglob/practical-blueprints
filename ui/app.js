@@ -188,23 +188,6 @@ function createApiClient(baseUrl) {
       });
     },
 
-    updateStep: function (blueprintId, stepId, fields) {
-      return fetch(fullUrl('/api/blueprints/' + encodeURIComponent(blueprintId) + '/steps/' + encodeURIComponent(stepId)), {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          'If-Match': String(version),
-        },
-        body: JSON.stringify(fields),
-      }).then(function (r) {
-        if (!r.ok) return handleErrorResponse(r);
-        return r.json();
-      }).then(function (body) {
-        if (body && typeof body.version === 'number') version = body.version;
-        return body;
-      });
-    },
-
     reorderSteps: function (blueprintId, steps) {
       return fetch(fullUrl('/api/blueprints/' + encodeURIComponent(blueprintId) + '/reorder'), {
         method: 'POST',
@@ -412,8 +395,17 @@ function init(document, window) {
     if (fromIndex === -1 || targetIndex === -1) return;
     var moved = steps.splice(fromIndex, 1)[0];
     steps.splice(targetIndex, 0, moved);
-    var payload = steps.map(function (step, index) {
-      return { id: step.id, display_order: index };
+    /* The server orders steps by phase first, so a cross-phase drag must
+       move the step INTO the target's phase, then renumber per phase. */
+    var targetPhaseId = steps.filter(function (step) {
+      return Number(step.id) === targetStepId;
+    })[0].phaseId;
+    var ordersByPhase = {};
+    var payload = steps.map(function (step) {
+      var phaseId = Number(step.id) === Number(moved.id) ? targetPhaseId : step.phaseId;
+      var count = ordersByPhase[phaseId] || 0;
+      ordersByPhase[phaseId] = count + 1;
+      return { id: step.id, phase_id: phaseId, display_order: count };
     });
     api.reorderSteps(state.blueprintId, payload)
       .then(function () { return loadBlueprint(state.blueprintId); })
@@ -473,6 +465,7 @@ function init(document, window) {
     editor.setSelectionRange(editor.value.length, editor.value.length);
 
     function commit() {
+      if (!editor.parentNode) return; // already committed or cancelled
       var next = editor.value;
       note.classList.remove('editing');
       note.replaceChild(textEl, editor);
@@ -492,8 +485,10 @@ function init(document, window) {
         event.preventDefault();
         commit();
       } else if (event.key === 'Escape') {
-        note.replaceChild(textEl, editor);
-        note.classList.remove('editing');
+        if (editor.parentNode) {
+          note.replaceChild(textEl, editor);
+          note.classList.remove('editing');
+        }
       }
     });
     editor.addEventListener('blur', commit);
@@ -655,12 +650,15 @@ function init(document, window) {
       /* Category pill drop: select the step and open that category's form. */
       if (text.indexOf('category:') === 0) {
         var droppedCategoryId = text.slice('category:'.length);
-        selectStep(step.id);
-        var target = checklistEl.querySelector('[data-category="' + droppedCategoryId + '"]');
-        if (target) {
-          target.classList.add('prompt-open');
-          var box = target.querySelector('textarea');
-          if (box) box.focus();
+        var droppedCategory = categoryById(droppedCategoryId);
+        if (droppedCategory) {
+          selectStep(step.id);
+          var target = checklistEl.querySelector('[data-category="' + droppedCategory.id + '"]');
+          if (target) {
+            target.classList.add('prompt-open');
+            var box = target.querySelector('textarea');
+            if (box) box.focus();
+          }
         }
         return;
       }
@@ -698,6 +696,12 @@ function init(document, window) {
   function wireEventStream() {
     api.openEventStream(state.blueprintId, function (event) {
       // Mutation events: re-fetch the blueprint and re-render (no refresh).
+      // Skip while a note editor is open — a re-render would silently
+      // discard the user's unsaved text.
+      if (gridEl.querySelector('.note-editor')) {
+        showToast('Live update received — reload to see it (editing in progress).', 'success');
+        return;
+      }
       loadBlueprint().then(function () {
         if (event && event.type) {
           showToast('Live update: ' + event.type, 'success');
@@ -751,6 +755,14 @@ function init(document, window) {
       var active = document.body.classList.toggle('presenting');
       presentationToggle.setAttribute('aria-pressed', active ? 'true' : 'false');
       presentationToggle.textContent = active ? 'Exit present' : 'Present';
+      /* Presentation mode must not allow reordering either. */
+      gridEl.querySelectorAll('.step-header').forEach(function (header) {
+        if (active) {
+          header.removeAttribute('draggable');
+        } else {
+          header.setAttribute('draggable', 'true');
+        }
+      });
     });
   }
   boot();

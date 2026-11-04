@@ -206,6 +206,49 @@ async function main() {
     // --- 404s
     r = await request("GET", "/api/blueprints/99999");
     check("GET missing blueprint → 404", r.status === 404, `got ${r.status}`);
+
+    // --- T-101-D: PATCH inline edit contract
+    // Use a live item (the touchpoint was deleted above); grab a fresh version
+    // before each mutation since MCP calls in between bump it.
+    r = await request("GET", `/api/blueprints/${bp.id}`);
+    const liveItem = r.json.phases.flatMap((p) => p.steps).flatMap((s) => s.layer_items).find((li) => li.layer_category === "OPPORTUNITY");
+    r = await request("PATCH", `/api/blueprints/${bp.id}/layer-items/${liveItem.id}`, { content: "One-click reorder (edited)" }, { "if-match": String(r.json.version) });
+    check("PATCH layer-item → 200 with updated content", r.status === 200 && r.json.layer_item.content === "One-click reorder (edited)", `got ${r.status} ${r.raw.slice(0, 150)}`);
+    check("PATCH bumps version", typeof r.json.version === "number" && r.json.version > 0, JSON.stringify(r.json).slice(0, 120));
+    const verAfterPatch = r.json.version;
+
+    r = await request("PATCH", `/api/blueprints/${bp.id}/layer-items/${liveItem.id}`, { content: "" }, { "if-match": String(verAfterPatch) });
+    check("PATCH empty content → 400", r.status === 400, `got ${r.status}`);
+
+    r = await request("PATCH", `/api/blueprints/${bp.id}/layer-items/${liveItem.id}`, { content: "x" }, { "if-match": "1" });
+    check("PATCH stale If-Match → 409", r.status === 409, `got ${r.status}`);
+
+    r = await request("PATCH", `/api/blueprints/99999/layer-items/1`, { content: "x" }, { "if-match": "1" });
+    check("PATCH cross-blueprint → 404", r.status === 404, `got ${r.status}`);
+
+    r = await request("GET", `/api/blueprints/${bp.id}`);
+    const verForSteps = r.json.version;
+    r = await request("PATCH", `/api/blueprints/${bp.id}/steps/${step1.id}`, { is_visible: "false" }, { "if-match": String(verForSteps) });
+    check("PATCH non-boolean is_visible → 400", r.status === 400, `got ${r.status}`);
+
+    r = await request("PATCH", `/api/blueprints/${bp.id}/steps/${step1.id}`, { is_visible: true }, { "if-match": String(verForSteps) });
+    check("PATCH step is_visible boolean → 200", r.status === 200 && r.json.step.is_visible === 1, `got ${r.status} ${r.raw.slice(0, 120)}`);
+
+    // --- reorder contract
+    r = await request("GET", `/api/blueprints/${bp.id}`);
+    const verBeforeReorder = r.json.version;
+    r = await request("POST", `/api/blueprints/${bp.id}/reorder`, { steps: [{ id: step1.id, display_order: 5 }, { id: 99999, display_order: 0 }] }, { "if-match": String(verBeforeReorder) });
+    check("reorder with unknown step → 404", r.status === 404, `got ${r.status}`);
+    r = await request("GET", `/api/blueprints/${bp.id}`);
+    const stepAfterFailedReorder = r.json.phases.flatMap((p) => p.steps).find((s) => s.id === step1.id);
+    check("reorder failure leaves order untouched (rollback)", stepAfterFailedReorder.display_order === 0, JSON.stringify(stepAfterFailedReorder));
+    check("reorder failure does not bump version", r.json.version === verBeforeReorder, JSON.stringify(r.json.version));
+
+    r = await request("POST", `/api/blueprints/${bp.id}/reorder`, { steps: [{ id: step1.id, display_order: 0 }, { id: step2.id, display_order: 1 }] }, { "if-match": String(r.json.version) });
+    check("reorder valid → 200", r.status === 200 && r.json.reordered === true, `got ${r.status} ${r.raw.slice(0, 120)}`);
+
+    r = await request("POST", `/api/blueprints/${bp.id}/reorder`, { steps: [{ id: step1.id, display_order: "abc" }] }, { "if-match": String(r.json.version) });
+    check("reorder non-numeric display_order → 400", r.status === 400, `got ${r.status}`);
   } finally {
     server.kill();
     await sleep(200);

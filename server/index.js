@@ -304,7 +304,6 @@ function handlePatch(req, res, id, kind, childId) {
   if (!blueprint) throw new HttpError(404, `blueprint ${id} not found`);
   return readBody(req).then((body) => {
     checkVersion(req, body || {}, blueprint);
-    const childIdNum = Number(childId);
     if (kind === "layer-items") {
       const row = db
         .prepare(
@@ -313,6 +312,9 @@ function handlePatch(req, res, id, kind, childId) {
         .get(childId, id);
       if (!row) throw new HttpError(404, `layer-items/${childId} not found in blueprint ${id}`);
       if (body.content === undefined) throw new HttpError(400, "missing required field 'content'");
+      if (typeof body.content !== "string" || body.content.trim().length === 0) {
+        throw new HttpError(400, "content must be a non-empty string", { current_version: blueprint.version });
+      }
       const textCheck = validateTextContent(body.content);
       if (!textCheck.ok) throw new HttpError(400, textCheck.reason, { current_version: blueprint.version });
       db.prepare("UPDATE layer_items SET content = ? WHERE id = ?").run(String(body.content), childId);
@@ -336,6 +338,9 @@ function handlePatch(req, res, id, kind, childId) {
         params.push(String(body.title));
       }
       if (body.is_visible !== undefined) {
+        if (typeof body.is_visible !== "boolean") {
+          throw new HttpError(400, "is_visible must be a boolean", { current_version: blueprint.version });
+        }
         updates.push("is_visible = ?");
         params.push(body.is_visible ? 1 : 0);
       }
@@ -366,33 +371,66 @@ function handleReorder(req, res, id) {
     const phaseIds = new Set(
       db.prepare("SELECT id FROM phases WHERE blueprint_id = ?").all(id).map((r) => r.id)
     );
-    const updateStepOrder = db.prepare("UPDATE steps SET display_order = ? WHERE id = ?");
-    const updateStepPhase = db.prepare("UPDATE steps SET phase_id = ?, display_order = ? WHERE id = ?");
+
+    // Validate every entry BEFORE writing anything, so an invalid payload
+    // cannot leave the blueprint partially reordered.
+    const stepWrites = [];
     for (const entry of body.steps) {
       if (!entry || entry.id === undefined) throw new HttpError(400, "each step entry needs an id");
+      const stepId = Number(entry.id);
+      if (!Number.isInteger(stepId)) throw new HttpError(400, `invalid step id '${entry.id}'`);
       const row = db
         .prepare(`SELECT s.id FROM steps s JOIN phases p ON p.id = s.phase_id WHERE s.id = ? AND p.blueprint_id = ?`)
-        .get(Number(entry.id), id);
+        .get(stepId, id);
       if (!row) throw new HttpError(404, `step ${entry.id} not found in blueprint ${id}`);
+      const order = entry.display_order === undefined ? 0 : Number(entry.display_order);
+      if (!Number.isFinite(order)) throw new HttpError(400, `invalid display_order '${entry.display_order}'`);
       if (entry.phase_id !== undefined) {
-        if (!phaseIds.has(Number(entry.phase_id))) {
+        const phaseId = Number(entry.phase_id);
+        if (!phaseIds.has(phaseId)) {
           throw new HttpError(400, `phase ${entry.phase_id} not found in blueprint ${id}`);
         }
-        updateStepPhase.run(Number(entry.phase_id), Number(entry.display_order || 0), Number(entry.id));
+        stepWrites.push({ kind: "phase", stepId, phaseId, order });
       } else {
-        updateStepOrder.run(Number(entry.display_order || 0), Number(entry.id));
+        stepWrites.push({ kind: "order", stepId, order });
       }
     }
+    const phaseWrites = [];
     if (Array.isArray(body.phases)) {
-      const updatePhase = db.prepare("UPDATE phases SET display_order = ? WHERE id = ?");
       for (const entry of body.phases) {
         if (!entry || entry.id === undefined) throw new HttpError(400, "each phase entry needs an id");
-        if (!phaseIds.has(Number(entry.id))) {
+        const phaseId = Number(entry.id);
+        if (!phaseIds.has(phaseId)) {
           throw new HttpError(400, `phase ${entry.id} not found in blueprint ${id}`);
         }
-        updatePhase.run(Number(entry.display_order || 0), Number(entry.id));
+        const order = entry.display_order === undefined ? 0 : Number(entry.display_order);
+        if (!Number.isFinite(order)) throw new HttpError(400, `invalid display_order '${entry.display_order}'`);
+        phaseWrites.push({ phaseId, order });
       }
     }
+
+    // All entries validated — apply atomically.
+    db.exec("BEGIN");
+    try {
+      const updateStepOrder = db.prepare("UPDATE steps SET display_order = ? WHERE id = ?");
+      const updateStepPhase = db.prepare("UPDATE steps SET phase_id = ?, display_order = ? WHERE id = ?");
+      for (const write of stepWrites) {
+        if (write.kind === "phase") {
+          updateStepPhase.run(write.phaseId, write.order, write.stepId);
+        } else {
+          updateStepOrder.run(write.order, write.stepId);
+        }
+      }
+      const updatePhase = db.prepare("UPDATE phases SET display_order = ? WHERE id = ?");
+      for (const write of phaseWrites) {
+        updatePhase.run(write.order, write.phaseId);
+      }
+      db.exec("COMMIT");
+    } catch (err) {
+      db.exec("ROLLBACK");
+      throw err;
+    }
+
     const version = bumpVersion(db, id);
     broadcast(id, { type: "reordered", blueprint_id: id, version });
     sendJson(res, 200, { reordered: true, version });
