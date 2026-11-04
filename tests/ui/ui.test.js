@@ -245,4 +245,10 @@ test('ui/index.html references app.js and styles.css; no external URLs', async (
   assert.ok(!js.includes('type="file"'), 'no file inputs created in JS');
   assert.ok(js.includes('EventSource'), 'SSE subscription present');
   assert.ok(js.includes("If-Match"), 'If-Match header sent on mutations');
+  // Regression: app.js must self-boot in the browser. It previously only
+  // exported init() for tests, so the page stayed on "connecting…" forever.
+  assert.ok(
+    /else if \(typeof document !== 'undefined'\)\s*\{[\s\S]*?init\(document, window\);/.test(js),
+    'browser entry point missing: app.js never calls init() in the browser'
+  );
 });

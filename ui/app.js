@@ -572,4 +572,7 @@ if (typeof module !== 'undefined' && module.exports) {
     createApiClient: createApiClient,
     init: init,
   };
+} else if (typeof document !== 'undefined') {
+  /* Browser entry point: boot the app against the real DOM. */
+  init(document, window);
 }
