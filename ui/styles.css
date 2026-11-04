@@ -117,6 +117,21 @@ html, body {
   font-weight: 400;
 }
 
+/* Sidebar category pill: draggable affordance */
+.category-label[draggable='true'] {
+  cursor: grab;
+  border-radius: 6px;
+  transition: background 0.15s ease;
+}
+
+.category-label[draggable='true']:hover {
+  background: rgba(148, 163, 184, 0.15);
+}
+
+.category-label[draggable='true']:active {
+  cursor: grabbing;
+}
+
 .checklist-category .category-prompt {
   font-size: 12px;
   color: var(--muted);
@@ -274,6 +289,9 @@ html, body {
 .step-header {
   font-weight: 600;
   text-align: center;
+  /* Dynamic heat mapping: tint scales with --heat (0..1) set by JS. */
+  background: color-mix(in srgb, #f1f5f9, #f59e0b calc(var(--heat, 0) * 55%));
+  transition: background 0.2s ease;
 }
 
 .step-header .step-visibility {
@@ -283,6 +301,32 @@ html, body {
   color: var(--muted);
   text-transform: uppercase;
   letter-spacing: 0.05em;
+}
+
+/* Drag handle + reorder affordances */
+.step-header .drag-handle {
+  position: absolute;
+  left: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  cursor: grab;
+  color: var(--muted);
+  font-size: 12px;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.step-header:hover .drag-handle { opacity: 0.7; }
+.step-header .drag-handle:active { cursor: grabbing; }
+
+.step-header.dragging { opacity: 0.5; }
+
+.step-header.drop-target {
+  box-shadow: inset 0 0 0 2px #2563eb;
+}
+
+.step-name {
+  pointer-events: none;
 }
 
 /* Backstage (hidden) steps: dark */
@@ -318,8 +362,8 @@ html, body {
 
 .cell {
   min-height: var(--row-height);
-  border-bottom: 1px solid var(--border);
-  border-right: 1px solid var(--border);
+  border-bottom: 1px solid rgba(148, 163, 184, 0.35);
+  border-right: 1px solid rgba(148, 163, 184, 0.35);
   padding: 4px;
   display: flex;
   flex-direction: column;
@@ -339,16 +383,48 @@ html, body {
   background: rgba(220, 38, 38, 0.08);
 }
 
-/* Sticky notes */
+/* Sticky notes — modern cards with soft shadow, hover lift, click-to-edit */
 .sticky-note {
-  border-left: 4px solid;
-  border-radius: 4px;
+  --note-color: #2563eb;
+  border-left: 3px solid var(--note-color);
+  border-radius: 8px;
   background: #fff;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.15);
-  padding: 6px 8px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08), 0 2px 6px rgba(15, 23, 42, 0.06);
+  padding: 8px 10px;
   font-size: 12px;
-  line-height: 1.35;
+  line-height: 1.4;
   word-break: break-word;
+  cursor: text;
+  transition: box-shadow 0.15s ease, transform 0.12s ease;
+}
+
+.sticky-note:hover {
+  box-shadow: 0 2px 4px rgba(15, 23, 42, 0.1), 0 4px 12px rgba(15, 23, 42, 0.12);
+}
+
+.sticky-note.editing {
+  box-shadow: 0 0 0 2px var(--note-color), 0 4px 12px rgba(15, 23, 42, 0.15);
+}
+
+.sticky-note.critical {
+  background: linear-gradient(135deg, #fff7ed, #ffedd5);
+  border: 1px solid #fdba74;
+  border-left: 4px solid #ea580c;
+}
+
+.sticky-note .note-text {
+  white-space: pre-wrap;
+}
+
+.sticky-note .note-editor {
+  width: 100%;
+  min-height: 3.5em;
+  border: none;
+  outline: none;
+  resize: vertical;
+  font: inherit;
+  color: inherit;
+  background: transparent;
   white-space: pre-wrap;
 }
 
@@ -358,7 +434,7 @@ html, body {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  margin-bottom: 2px;
+  margin-bottom: 3px;
   opacity: 0.85;
 }
 
@@ -372,4 +448,41 @@ html, body {
   text-align: center;
   color: var(--muted);
   font-size: 14px;
+}
+
+/* Presentation mode: hide editing affordances */
+body.presenting .drag-handle,
+body.presenting .prompt-form,
+body.presenting .sidebar-hint {
+  display: none !important;
+}
+
+body.presenting .sticky-note {
+  cursor: default;
+  pointer-events: none;
+}
+
+body.presenting .step-header {
+  cursor: default;
+}
+
+body.presenting .step-header .drag-handle {
+  display: none;
+}
+
+#presentation-toggle {
+  margin-left: auto;
+  padding: 3px 10px;
+  font-size: 11px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+#presentation-toggle[aria-pressed='true'] {
+  background: #2563eb;
+  border-color: #2563eb;
+  color: #fff;
 }

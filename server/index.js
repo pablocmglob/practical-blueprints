@@ -291,6 +291,114 @@ function handleDelete(req, res, id, kind, childId) {
   });
 }
 
+/**
+ * PATCH /api/blueprints/{id}/(phases|steps|layer-items)/{childId}
+ * Partial update for inline editing:
+ * - layer-items: {content} (text-only enforced)
+ * - steps: {title?, is_visible?}
+ * - phases: {name}
+ * Requires If-Match: <version>; broadcasts an SSE event on success.
+ */
+function handlePatch(req, res, id, kind, childId) {
+  const blueprint = getBlueprint(db, id);
+  if (!blueprint) throw new HttpError(404, `blueprint ${id} not found`);
+  return readBody(req).then((body) => {
+    checkVersion(req, body || {}, blueprint);
+    const childIdNum = Number(childId);
+    if (kind === "layer-items") {
+      const row = db
+        .prepare(
+          `SELECT li.id FROM layer_items li JOIN steps s ON s.id = li.step_id JOIN phases p ON p.id = s.phase_id WHERE li.id = ? AND p.blueprint_id = ?`
+        )
+        .get(childId, id);
+      if (!row) throw new HttpError(404, `layer-items/${childId} not found in blueprint ${id}`);
+      if (body.content === undefined) throw new HttpError(400, "missing required field 'content'");
+      const textCheck = validateTextContent(body.content);
+      if (!textCheck.ok) throw new HttpError(400, textCheck.reason, { current_version: blueprint.version });
+      db.prepare("UPDATE layer_items SET content = ? WHERE id = ?").run(String(body.content), childId);
+      const layerItem = db.prepare("SELECT * FROM layer_items WHERE id = ?").get(Number(childId));
+      const version = bumpVersion(db, id);
+      broadcast(id, { type: "layer_item_updated", blueprint_id: id, layer_item: layerItem, version });
+      sendJson(res, 200, { layer_item: layerItem, version });
+      return;
+    }
+    if (kind === "steps") {
+      const row = db
+        .prepare(`SELECT s.id FROM steps s JOIN phases p ON p.id = s.phase_id WHERE s.id = ? AND p.blueprint_id = ?`)
+        .get(childId, id);
+      if (!row) throw new HttpError(404, `steps/${childId} not found in blueprint ${id}`);
+      const updates = [];
+      const params = [];
+      if (body.title !== undefined) {
+        const titleCheck = validateTextContent(body.title);
+        if (!titleCheck.ok) throw new HttpError(400, titleCheck.reason, { current_version: blueprint.version });
+        updates.push("title = ?");
+        params.push(String(body.title));
+      }
+      if (body.is_visible !== undefined) {
+        updates.push("is_visible = ?");
+        params.push(body.is_visible ? 1 : 0);
+      }
+      if (updates.length === 0) throw new HttpError(400, "no updatable fields (title, is_visible)");
+      db.prepare(`UPDATE steps SET ${updates.join(", ")} WHERE id = ?`).run(...params, childId);
+      const step = db.prepare("SELECT * FROM steps WHERE id = ?").get(Number(childId));
+      const version = bumpVersion(db, id);
+      broadcast(id, { type: "step_updated", blueprint_id: id, step, version });
+      sendJson(res, 200, { step, version });
+      return;
+    }
+    throw new HttpError(400, `PATCH not supported for '${kind}'`);
+  });
+}
+
+/**
+ * POST /api/blueprints/{id}/reorder
+ * Body: { steps: [{id, phase_id, display_order}], phases?: [{id, display_order}] }
+ * Reorders steps left-to-right (optionally moving a step to another phase)
+ * and reorders phases. Requires If-Match; broadcasts one SSE event.
+ */
+function handleReorder(req, res, id) {
+  const blueprint = getBlueprint(db, id);
+  if (!blueprint) throw new HttpError(404, `blueprint ${id} not found`);
+  return readBody(req).then((body) => {
+    checkVersion(req, body || {}, blueprint);
+    if (!Array.isArray(body.steps)) throw new HttpError(400, "missing required field 'steps' (array)");
+    const phaseIds = new Set(
+      db.prepare("SELECT id FROM phases WHERE blueprint_id = ?").all(id).map((r) => r.id)
+    );
+    const updateStepOrder = db.prepare("UPDATE steps SET display_order = ? WHERE id = ?");
+    const updateStepPhase = db.prepare("UPDATE steps SET phase_id = ?, display_order = ? WHERE id = ?");
+    for (const entry of body.steps) {
+      if (!entry || entry.id === undefined) throw new HttpError(400, "each step entry needs an id");
+      const row = db
+        .prepare(`SELECT s.id FROM steps s JOIN phases p ON p.id = s.phase_id WHERE s.id = ? AND p.blueprint_id = ?`)
+        .get(Number(entry.id), id);
+      if (!row) throw new HttpError(404, `step ${entry.id} not found in blueprint ${id}`);
+      if (entry.phase_id !== undefined) {
+        if (!phaseIds.has(Number(entry.phase_id))) {
+          throw new HttpError(400, `phase ${entry.phase_id} not found in blueprint ${id}`);
+        }
+        updateStepPhase.run(Number(entry.phase_id), Number(entry.display_order || 0), Number(entry.id));
+      } else {
+        updateStepOrder.run(Number(entry.display_order || 0), Number(entry.id));
+      }
+    }
+    if (Array.isArray(body.phases)) {
+      const updatePhase = db.prepare("UPDATE phases SET display_order = ? WHERE id = ?");
+      for (const entry of body.phases) {
+        if (!entry || entry.id === undefined) throw new HttpError(400, "each phase entry needs an id");
+        if (!phaseIds.has(Number(entry.id))) {
+          throw new HttpError(400, `phase ${entry.id} not found in blueprint ${id}`);
+        }
+        updatePhase.run(Number(entry.display_order || 0), Number(entry.id));
+      }
+    }
+    const version = bumpVersion(db, id);
+    broadcast(id, { type: "reordered", blueprint_id: id, version });
+    sendJson(res, 200, { reordered: true, version });
+  });
+}
+
 function handleSse(req, res, id) {
   const blueprint = getBlueprint(db, id);
   if (!blueprint) throw new HttpError(404, `blueprint ${id} not found`);
@@ -339,6 +447,13 @@ const server = http.createServer((req, res) => {
         const deleteMatch = /^(phases|steps|layer-items)\/(\d+)$/.exec(rest);
         if (deleteMatch && req.method === "DELETE") {
           return await handleDelete(req, res, id, deleteMatch[1], deleteMatch[2]);
+        }
+        const patchMatch = /^(phases|steps|layer-items)\/(\d+)$/.exec(rest);
+        if (patchMatch && req.method === "PATCH") {
+          return await handlePatch(req, res, id, patchMatch[1], patchMatch[2]);
+        }
+        if (rest === "reorder" && req.method === "POST") {
+          return await handleReorder(req, res, id);
         }
       }
       throw new HttpError(404, `no route for ${req.method} ${pathName}`);

@@ -252,3 +252,20 @@ test('ui/index.html references app.js and styles.css; no external URLs', async (
     'browser entry point missing: app.js never calls init() in the browser'
   );
 });
+
+/* ---------- T-101-D modernization regressions ---------- */
+
+test('app.js includes inline edit, drag reorder, category pill and presentation mode', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const js = fs.readFileSync(path.join(__dirname, '..', '..', 'ui', 'app.js'), 'utf8');
+  assert.ok(js.includes("method: 'PATCH'"), 'PATCH used for inline edits');
+  assert.ok(js.includes('/reorder'), 'reorder endpoint called');
+  assert.ok(js.includes('category:'), 'category pill payload present');
+  assert.ok(js.includes('presentation-toggle'), 'presentation mode wired');
+  const css = fs.readFileSync(path.join(__dirname, '..', '..', 'ui', 'styles.css'), 'utf8');
+  assert.ok(css.includes('body.presenting'), 'presentation CSS present');
+  assert.ok(css.includes('--heat'), 'heat-map CSS variable present');
+  const html = fs.readFileSync(path.join(__dirname, '..', '..', 'ui', 'index.html'), 'utf8');
+  assert.ok(html.includes('id="presentation-toggle"'), 'toggle button in HTML');
+});

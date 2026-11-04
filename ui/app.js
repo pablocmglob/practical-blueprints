@@ -171,6 +171,57 @@ function createApiClient(baseUrl) {
       });
     },
 
+    updateLayerItem: function (blueprintId, itemId, content) {
+      return fetch(fullUrl('/api/blueprints/' + encodeURIComponent(blueprintId) + '/layer-items/' + encodeURIComponent(itemId)), {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'If-Match': String(version),
+        },
+        body: JSON.stringify({ content: content }),
+      }).then(function (r) {
+        if (!r.ok) return handleErrorResponse(r);
+        return r.json();
+      }).then(function (body) {
+        if (body && typeof body.version === 'number') version = body.version;
+        return body;
+      });
+    },
+
+    updateStep: function (blueprintId, stepId, fields) {
+      return fetch(fullUrl('/api/blueprints/' + encodeURIComponent(blueprintId) + '/steps/' + encodeURIComponent(stepId)), {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'If-Match': String(version),
+        },
+        body: JSON.stringify(fields),
+      }).then(function (r) {
+        if (!r.ok) return handleErrorResponse(r);
+        return r.json();
+      }).then(function (body) {
+        if (body && typeof body.version === 'number') version = body.version;
+        return body;
+      });
+    },
+
+    reorderSteps: function (blueprintId, steps) {
+      return fetch(fullUrl('/api/blueprints/' + encodeURIComponent(blueprintId) + '/reorder'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'If-Match': String(version),
+        },
+        body: JSON.stringify({ steps: steps }),
+      }).then(function (r) {
+        if (!r.ok) return handleErrorResponse(r);
+        return r.json();
+      }).then(function (body) {
+        if (body && typeof body.version === 'number') version = body.version;
+        return body;
+      });
+    },
+
     openEventStream: function (blueprintId, onEvent, onStatusChange) {
       var source = new EventSource(fullUrl('/api/blueprints/' + encodeURIComponent(blueprintId) + '/events'));
       source.onopen = function () { onStatusChange('live'); };
@@ -196,6 +247,7 @@ function init(document, window) {
     selectedStepId: null,
     version: 0,
   };
+  var draggedStepId = null;
 
   var gridEl = document.getElementById('blueprint-grid');
   var scrollEl = document.getElementById('grid-scroll');
@@ -205,6 +257,7 @@ function init(document, window) {
   var versionEl = document.getElementById('version-label');
   var selectionEl = document.getElementById('selection-label');
   var toastRegion = document.getElementById('toast-region');
+  var presentationToggle = document.getElementById('presentation-toggle');
 
   function showToast(message, kind) {
     var toast = document.createElement('div');
@@ -276,12 +329,25 @@ function init(document, window) {
       var header = document.createElement('div');
       header.className = 'grid-header step-header' + (step.isVisible ? '' : ' backstage');
       header.setAttribute('data-step-id', step.id);
-      header.textContent = step.name;
+      header.setAttribute('draggable', 'true');
+
+      var handle = document.createElement('span');
+      handle.className = 'drag-handle';
+      handle.title = 'Drag to reorder';
+      handle.textContent = '⠿';
+      header.appendChild(handle);
+
+      var nameSpan = document.createElement('span');
+      nameSpan.className = 'step-name';
+      nameSpan.textContent = step.name;
+      header.appendChild(nameSpan);
+
       var vis = document.createElement('span');
       vis.className = 'step-visibility';
       vis.textContent = step.isVisible ? 'frontstage' : 'backstage';
       header.appendChild(vis);
       header.addEventListener('click', function () { selectStep(step.id); });
+      wireStepDrag(header, step);
       gridEl.appendChild(header);
     });
 
@@ -302,6 +368,59 @@ function init(document, window) {
     });
   }
 
+  /* Drag-and-drop reorder for step columns. On drop, POSTs the new order. */
+  function wireStepDrag(header, step) {
+    header.addEventListener('dragstart', function (event) {
+      draggedStepId = step.id;
+      header.classList.add('dragging');
+      if (event.dataTransfer) {
+        event.dataTransfer.effectAllowed = 'move';
+        event.dataTransfer.setData('text/plain', String(step.id));
+      }
+    });
+    header.addEventListener('dragend', function () {
+      draggedStepId = null;
+      gridEl.querySelectorAll('.step-header.drop-target').forEach(function (el) {
+        el.classList.remove('drop-target');
+      });
+    });
+    header.addEventListener('dragover', function (event) {
+      if (draggedStepId === null || Number(draggedStepId) === Number(step.id)) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = 'move';
+      header.classList.add('drop-target');
+    });
+    header.addEventListener('dragleave', function () {
+      header.classList.remove('drop-target');
+    });
+    header.addEventListener('drop', function (event) {
+      event.preventDefault();
+      header.classList.remove('drop-target');
+      if (draggedStepId === null || Number(draggedStepId) === Number(step.id)) return;
+      moveStep(Number(draggedStepId), Number(step.id));
+    });
+  }
+
+  function moveStep(sourceStepId, targetStepId) {
+    var steps = state.model.steps.slice();
+    var fromIndex = -1;
+    var targetIndex = -1;
+    steps.forEach(function (step, index) {
+      if (Number(step.id) === sourceStepId) fromIndex = index;
+      if (Number(step.id) === targetStepId) targetIndex = index;
+    });
+    if (fromIndex === -1 || targetIndex === -1) return;
+    var moved = steps.splice(fromIndex, 1)[0];
+    steps.splice(targetIndex, 0, moved);
+    var payload = steps.map(function (step, index) {
+      return { id: step.id, display_order: index };
+    });
+    api.reorderSteps(state.blueprintId, payload)
+      .then(function () { return loadBlueprint(state.blueprintId); })
+      .then(function () { showToast('Step order saved.', 'success'); })
+      .catch(function (err) { showToast('Could not reorder: ' + err.message, 'error'); });
+  }
+
   function buildCell(step, category) {
     var cell = document.createElement('div');
     cell.className = 'cell';
@@ -320,19 +439,67 @@ function init(document, window) {
 
   function buildStickyNote(item, category) {
     var note = document.createElement('div');
-    note.className = 'sticky-note';
+    note.className = 'sticky-note' + (category.id === 'CRITICAL_MOMENT' ? ' critical' : '');
     note.setAttribute('data-item-id', item.id);
-    note.style.borderLeftColor = category.color;
+    note.style.setProperty('--note-color', category.color);
+
     var catLabel = document.createElement('span');
     catLabel.className = 'note-category';
     catLabel.style.color = category.color;
     catLabel.textContent = category.label;
     note.appendChild(catLabel);
-    note.appendChild(document.createTextNode(item.content));
+
+    var textEl = document.createElement('div');
+    textEl.className = 'note-text';
+    textEl.textContent = item.content;
+    note.appendChild(textEl);
+
+    /* Click-to-edit: swap the text for a textarea in place (no modal). */
+    note.addEventListener('click', function (event) {
+      event.stopPropagation();
+      if (note.classList.contains('editing')) return;
+      startEdit(note, textEl, item, category);
+    });
     return note;
   }
 
-  /* Column heat-map width: applied per step column after render. */
+  function startEdit(note, textEl, item, category) {
+    note.classList.add('editing');
+    var editor = document.createElement('textarea');
+    editor.className = 'note-editor';
+    editor.value = item.content;
+    note.replaceChild(editor, textEl);
+    editor.focus();
+    editor.setSelectionRange(editor.value.length, editor.value.length);
+
+    function commit() {
+      var next = editor.value;
+      note.classList.remove('editing');
+      note.replaceChild(textEl, editor);
+      if (textEl.textContent === next) return;
+      var check = validateTextOnly(next);
+      if (!check.ok) {
+        showToast(check.message, 'error');
+        return;
+      }
+      api.updateLayerItem(state.blueprintId, item.id, next)
+        .then(function () { showToast('Note updated.', 'success'); })
+        .catch(function (err) { showToast('Could not update note: ' + err.message, 'error'); });
+    }
+
+    editor.addEventListener('keydown', function (event) {
+      if (event.key === 'Enter' && !event.shiftKey) {
+        event.preventDefault();
+        commit();
+      } else if (event.key === 'Escape') {
+        note.replaceChild(textEl, editor);
+        note.classList.remove('editing');
+      }
+    });
+    editor.addEventListener('blur', commit);
+  }
+
+  /* Column heat-map width + tint: applied per step column after render. */
   function applyColumnWidths() {
     if (!state.model) return;
     state.model.steps.forEach(function (step) {
@@ -340,6 +507,12 @@ function init(document, window) {
       var cells = gridEl.querySelectorAll('[data-step-id="' + step.id + '"].cell');
       cells.forEach(function (cell) {
         cell.style.minWidth = Math.round(180 * factor) + 'px';
+      });
+      /* Dynamic heat mapping: step header tint scales with item density. */
+      var headers = gridEl.querySelectorAll('[data-step-id="' + step.id + '"].step-header');
+      var intensity = Math.min(step.itemCount / 8, 1); // 0..1, saturates at 8 items
+      headers.forEach(function (header) {
+        header.style.setProperty('--heat', intensity.toFixed(2));
       });
     });
   }
@@ -355,6 +528,8 @@ function init(document, window) {
 
       var label = document.createElement('div');
       label.className = 'category-label';
+      label.setAttribute('draggable', 'true');
+      label.title = 'Drag onto a canvas cell to add a note';
       var dot = document.createElement('span');
       dot.className = 'category-dot';
       dot.style.background = category.color;
@@ -365,6 +540,7 @@ function init(document, window) {
       count.textContent = countItemsForCategory(category.id) + ' notes';
       label.appendChild(count);
       block.appendChild(label);
+      wireCategoryDrag(label, category);
 
       var prompt = document.createElement('div');
       prompt.className = 'category-prompt';
@@ -445,6 +621,17 @@ function init(document, window) {
 
   /* ---- Text-only drop zones ---- */
 
+  /* Sidebar category pill drag: carries the category id as text/plain so
+     existing text-only drop zones can classify it. */
+  function wireCategoryDrag(label, category) {
+    label.addEventListener('dragstart', function (event) {
+      if (event.dataTransfer) {
+        event.dataTransfer.effectAllowed = 'copy';
+        event.dataTransfer.setData('text/plain', 'category:' + category.id);
+      }
+    });
+  }
+
   function wireDropZone(cell, step, category) {
     cell.addEventListener('dragover', function (event) {
       event.preventDefault();
@@ -465,6 +652,18 @@ function init(document, window) {
         return;
       }
       var text = event.dataTransfer ? event.dataTransfer.getData('text/plain') : '';
+      /* Category pill drop: select the step and open that category's form. */
+      if (text.indexOf('category:') === 0) {
+        var droppedCategoryId = text.slice('category:'.length);
+        selectStep(step.id);
+        var target = checklistEl.querySelector('[data-category="' + droppedCategoryId + '"]');
+        if (target) {
+          target.classList.add('prompt-open');
+          var box = target.querySelector('textarea');
+          if (box) box.focus();
+        }
+        return;
+      }
       var check = validateTextOnly(text);
       if (!check.ok) {
         showToast(check.message, 'error');
@@ -547,6 +746,13 @@ function init(document, window) {
   }
 
   wirePasteGuard(document);
+  if (presentationToggle) {
+    presentationToggle.addEventListener('click', function () {
+      var active = document.body.classList.toggle('presenting');
+      presentationToggle.setAttribute('aria-pressed', active ? 'true' : 'false');
+      presentationToggle.textContent = active ? 'Exit present' : 'Present';
+    });
+  }
   boot();
 
   return {
