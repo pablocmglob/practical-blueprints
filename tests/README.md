@@ -5,13 +5,13 @@ states the property; the decision tree tells you which.
 
 | Layer | What it covers | Examples here |
 | --- | --- | --- |
-| **L1** business invariants | the Hard Rules, deployment blockers | `tests/policy/test_corpus_integrity.py`, `test_index_idempotent.py`, `test_strict_reads.py` |
-| **L2** SSOT pins | registry rows are true | `tests/policy/test_ssot_pins.py` |
-| **L3** API contracts | public shapes (schema, index format) | `tests/policy/test_schema_drift.py` (L3/L7) |
+| **L1** business invariants | the Hard Rules, deployment blockers | `tests/policy/test_corpus_integrity.js`, `test_index_idempotent.js`, `test_strict_reads.js` |
+| **L2** SSOT pins | registry rows are true | `tests/policy/test_ssot_pins.js` |
+| **L3** API contracts | public shapes (schema, index format) | `tests/policy/test_schema_drift.js` (L3/L7) |
 | **L4** unit | one function in isolation | future `tests/unit/` |
-| **L5** integration | several parts together | `tests/smoke_test.py` (guarded) |
+| **L5** integration | several parts together | `tests/smoke_backend.js` (guarded) |
 | **L6** regression | one test per historical bug, named by its id | future `tests/regression/` |
-| **L7** schema | schema-column drift | `tests/policy/test_schema_drift.py` |
+| **L7** schema | schema-column drift | `tests/policy/test_schema_drift.js` |
 
 ## Decision tree
 

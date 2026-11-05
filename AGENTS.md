@@ -59,7 +59,7 @@ steps 1, 4, 5, 6, 8):
 - `blueprints/` — the corpus and its schema (core decision path)
 - `tools/validate.py`, `tools/index.py` — validators / core logic
 - `schema/blueprints.schema.json` — public contract
-- `tests/smoke_test.py` — integration smoke test
+- `tests/smoke_backend.js` — integration smoke test
 - `docs/BEHAVIOUR_REFERENCE.md`, `docs/BEHAVIOUR_CHANGELOG.md` — behaviour docs
 
 1. PRE snapshot of what is documented and tested (`/review-consistency pre`
@@ -91,20 +91,20 @@ and should say so.
 
 1. **No silent corpus loss.** Every blueprint file present before a tool run
    is present after it, unless the run's plan explicitly says to remove it.
-   Locked by `tests/policy/test_corpus_integrity.py`.
+   Locked by `tests/policy/test_corpus_integrity.js`.
 2. **Single writer per fact.** Each fact in the SSOT registry has exactly one
    canonical location that writes it; a second writer is a bug. Locked by
-   `tests/policy/test_ssot_pins.py`.
+   `tests/policy/test_ssot_pins.js`.
 3. **Validation is a chokepoint.** Nothing enters the published index without
    passing `tools/validate.py`; no parallel validator may exist. Locked by
-   `tests/policy/test_ssot_pins.py`.
+   `tests/policy/test_ssot_pins.js`.
 4. **Idempotent, additive index writes.** Re-running `tools/index.py` on the
    same corpus yields the same index (no duplicates, no data loss); index
    writes never delete entries not covered by the current corpus. Locked by
-   `tests/policy/test_index_idempotent.py`.
+   `tests/policy/test_index_idempotent.js`.
 5. **Strict critical reads.** A failed read of a critical fact raises and
    writes nothing; it never falls back to a default silently. Locked by
-   `tests/policy/test_strict_reads.py`.
+   `tests/policy/test_strict_reads.js`.
 
 ## 4. Always-on essentials (restated from topic rules)
 

@@ -20,9 +20,33 @@ async function main() {
   let failed = 0;
   let total = 0;
   for (const f of files) {
-    const mod = require(path.join(POLICY_DIR, f));
-    if (typeof mod.run !== "function") continue;
-    const results = await mod.run();
+    let mod;
+    try {
+      mod = require(path.join(POLICY_DIR, f));
+    } catch (err) {
+      failed++;
+      total++;
+      console.log(`FAIL  ${f}: module threw on require`);
+      console.log(`      ${err.message}`);
+      continue;
+    }
+    if (typeof mod.run !== "function") {
+      failed++;
+      total++;
+      console.log(`FAIL  ${f}: no runnable export`);
+      console.log(`      policy test files must export run() — a gutted file must fail the gate, not count as zero`);
+      continue;
+    }
+    let results;
+    try {
+      results = await mod.run();
+    } catch (err) {
+      failed++;
+      total++;
+      console.log(`FAIL  ${f}: run() threw`);
+      console.log(`      ${err.message}`);
+      continue;
+    }
     for (const r of results) {
       total++;
       if (!r.pass) {

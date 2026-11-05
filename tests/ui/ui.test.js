@@ -269,3 +269,30 @@ test('app.js includes inline edit, drag reorder, category pill and presentation 
   const html = fs.readFileSync(path.join(__dirname, '..', '..', 'ui', 'index.html'), 'utf8');
   assert.ok(html.includes('id="presentation-toggle"'), 'toggle button in HTML');
 });
+
+/* ---------- editing toolbar (T3-M1..M6 fixes) ---------- */
+
+test('UI exposes the full editing toolbar and prompt forms open on selection', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const js = fs.readFileSync(path.join(__dirname, '..', '..', 'ui', 'app.js'), 'utf8');
+  const html = fs.readFileSync(path.join(__dirname, '..', '..', 'ui', 'index.html'), 'utf8');
+  const css = fs.readFileSync(path.join(__dirname, '..', '..', 'ui', 'styles.css'), 'utf8');
+
+  // Toolbar buttons exist in HTML and are wired in app.js.
+  ['add-phase-btn', 'add-step-btn', 'toggle-visibility-btn', 'delete-step-btn', 'delete-phase-btn']
+    .forEach((id) => assert.ok(html.includes(`id="${id ?? id}"`) || html.includes(`id="${id}"`), `${id} in HTML`));
+  assert.ok(js.includes('wireToolbar'), 'toolbar wiring present');
+  assert.ok(js.includes('updateToolbar'), 'toolbar state sync present');
+
+  // The T3-M1 bug: prompt forms must open on step selection.
+  assert.ok(js.includes('prompt-open'), 'prompt forms open on step selection');
+
+  // Conflict recovery + stale selection + keyboard access.
+  assert.ok(js.includes('recoverFromConflict'), '412 conflict recovery helper present');
+  assert.ok(js.includes("tabindex', '0'"), 'step headers keyboard focusable');
+  assert.ok(css.includes('focus-visible'), 'focus ring CSS present');
+
+  // Backstage cells render dark (T3-Mo1).
+  assert.ok(css.includes('.cell.backstage'), 'backstage cell CSS present');
+});

@@ -246,9 +246,48 @@ async function main() {
 
     r = await request("POST", `/api/blueprints/${bp.id}/reorder`, { steps: [{ id: step1.id, display_order: 0 }, { id: step2.id, display_order: 1 }] }, { "if-match": String(r.json.version) });
     check("reorder valid → 200", r.status === 200 && r.json.reordered === true, `got ${r.status} ${r.raw.slice(0, 120)}`);
+    const verAfterReorder = r.json.version;
 
-    r = await request("POST", `/api/blueprints/${bp.id}/reorder`, { steps: [{ id: step1.id, display_order: "abc" }] }, { "if-match": String(r.json.version) });
+    r = await request("POST", `/api/blueprints/${bp.id}/reorder`, { steps: [{ id: step1.id, display_order: "abc" }] }, { "if-match": String(verAfterReorder) });
     check("reorder non-numeric display_order → 400", r.status === 400, `got ${r.status}`);
+
+    // --- PATCH phases (new route)
+    r = await request("PATCH", `/api/blueprints/${bp.id}/phases/${phase.id}`, { name: "Order Capture" }, { "if-match": String(verAfterReorder) });
+    check("PATCH phases → 200, name updated", r.status === 200 && r.json.phase && r.json.phase.name === "Order Capture", `got ${r.status} ${r.raw.slice(0, 120)}`);
+    const verAfterPhasePatch = r.json.version;
+
+    r = await request("PATCH", `/api/blueprints/${bp.id}/phases/${phase.id}`, { name: "" }, { "if-match": String(verAfterPhasePatch) });
+    check("PATCH phases empty name → 400", r.status === 400, `got ${r.status}`);
+    r = await request("PATCH", `/api/blueprints/${bp.id}/phases/99999`, { name: "Ghost" }, { "if-match": String(verAfterPhasePatch) });
+    check("PATCH unknown phase → 404", r.status === 404, `got ${r.status}`);
+
+    // --- create-path validation
+    r = await request("POST", `/api/blueprints/${bp.id}/phases`, { name: "Bad data:text/html;base64,AAAA" }, { "if-match": String(verAfterPhasePatch) });
+    check("POST phases data-URI name → 400", r.status === 400, `got ${r.status}`);
+    r = await request("POST", `/api/blueprints/${bp.id}/phases`, { name: "X", display_order: "abc" }, { "if-match": String(verAfterPhasePatch) });
+    check("POST phases non-numeric display_order → 400", r.status === 400, `got ${r.status}`);
+    r = await request("POST", "/api/blueprints", { name: "", state_type: "CURRENT_STATE" });
+    check("POST /api/blueprints empty name → 400", r.status === 400, `got ${r.status}`);
+    r = await request("POST", "/api/blueprints", { name: "X data:text/html;base64,AAAA", state_type: "CURRENT_STATE" });
+    check("POST /api/blueprints data-URI name → 400", r.status === 400, `got ${r.status}`);
+
+    // --- notify hardening
+    r = await request("POST", `/api/blueprints/${bp.id}/notify`, { type: "not_a_real_event" });
+    check("notify unknown type → 400", r.status === 400, `got ${r.status}`);
+    r = await request("POST", `/api/blueprints/${bp.id}/notify`, "not-an-object");
+    check("notify non-object → 400", r.status === 400, `got ${r.status}`);
+    r = await request("POST", `/api/blueprints/${bp.id}/notify`, { type: "step_updated", blueprint_id: bp.id });
+    check("notify known type → 200", r.status === 200, `got ${r.status}`);
+
+    // --- DELETE blueprint
+    r = await request("POST", "/api/blueprints", { name: "Doomed Blueprint", state_type: "FUTURE_STATE" });
+    const doomed = r.json;
+    r = await request("DELETE", `/api/blueprints/${doomed.id}`);
+    check("DELETE blueprint → 200", r.status === 200 && r.json.deleted === doomed.id, `got ${r.status} ${r.raw.slice(0, 120)}`);
+    r = await request("GET", `/api/blueprints/${doomed.id}`);
+    check("deleted blueprint → 404", r.status === 404, `got ${r.status}`);
+    r = await request("DELETE", `/api/blueprints/${doomed.id}`);
+    check("DELETE unknown blueprint → 404", r.status === 404, `got ${r.status}`);
   } finally {
     server.kill();
     await sleep(200);

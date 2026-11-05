@@ -85,6 +85,37 @@ html, body {
   border-bottom: 1px solid var(--border);
 }
 
+/* ============ Editing toolbar ============ */
+
+#edit-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+#edit-toolbar button {
+  font: inherit;
+  font-size: 11px;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: #fff;
+  color: var(--text);
+  cursor: pointer;
+}
+
+#edit-toolbar button:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+#edit-toolbar button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
 #checklist {
   flex: 1;
   overflow-y: auto;
@@ -277,7 +308,7 @@ html, body {
   padding: 6px 8px;
   position: sticky;
   top: 0;
-  z-index: 20;
+  z-index: 21; /* above step headers so bands stay visible on scroll (T3-M3) */
 }
 
 .phase-band.corner {
@@ -289,9 +320,18 @@ html, body {
 .step-header {
   font-weight: 600;
   text-align: center;
+  /* Sticky below the phase band row, not on top of it (T3-M3). */
+  top: var(--phase-band-height, 28px);
   /* Dynamic heat mapping: tint scales with --heat (0..1) set by JS. */
   background: color-mix(in srgb, #f1f5f9, #f59e0b calc(var(--heat, 0) * 55%));
   transition: background 0.2s ease;
+}
+
+/* Keyboard focus ring for step headers (T3-M6). */
+.step-header:focus-visible {
+  outline: 2px solid var(--cat-touchpoint);
+  outline-offset: -2px;
+  cursor: pointer;
 }
 
 .step-header .step-visibility {
@@ -334,6 +374,19 @@ html, body {
 .column.backstage {
   background: var(--backstage-bg);
   color: var(--backstage-text);
+}
+
+/* Backstage data cells: dark column body (T3-Mo1) */
+.cell.backstage {
+  background: var(--backstage-bg);
+  color: var(--backstage-text);
+  border-color: rgba(148, 163, 184, 0.25);
+}
+
+.cell.backstage .sticky-note {
+  background: #273449;
+  color: var(--backstage-text);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
 }
 
 .step-header.backstage .step-visibility { color: #94a3b8; }
@@ -453,7 +506,8 @@ html, body {
 /* Presentation mode: hide editing affordances */
 body.presenting .drag-handle,
 body.presenting .prompt-form,
-body.presenting .sidebar-hint {
+body.presenting .sidebar-hint,
+body.presenting #edit-toolbar {
   display: none !important;
 }
 

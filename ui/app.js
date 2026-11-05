@@ -60,6 +60,7 @@ function buildGridModel(blueprint) {
       var stepEntry = {
         id: step.id,
         phaseId: phase.id,
+        phaseName: phaseEntry.name,
         name: step.name || step.title || 'Untitled step',
         isVisible: step.is_visible !== false, // true = frontstage
         itemCount: 0,
@@ -126,12 +127,14 @@ function createApiClient(baseUrl) {
   function handleErrorResponse(response) {
     return response.text().then(function (body) {
       var message = 'HTTP ' + response.status;
+      var parsed = null;
       try {
-        var parsed = JSON.parse(body);
+        parsed = JSON.parse(body);
         if (parsed && parsed.error) message += ': ' + parsed.error;
       } catch (e) { /* non-JSON body: keep generic message */ }
       var err = new Error(message);
       err.status = response.status;
+      err.parsed = parsed;
       throw err;
     });
   }
@@ -205,6 +208,96 @@ function createApiClient(baseUrl) {
       });
     },
 
+    deleteLayerItem: function (blueprintId, itemId) {
+      return fetch(fullUrl('/api/blueprints/' + encodeURIComponent(blueprintId) + '/layer-items/' + encodeURIComponent(itemId)), {
+        method: 'DELETE',
+        headers: { 'If-Match': String(version) },
+      }).then(function (r) {
+        if (!r.ok) return handleErrorResponse(r);
+        return r.json();
+      }).then(function (body) {
+        if (body && typeof body.version === 'number') version = body.version;
+        return body;
+      });
+    },
+
+    deleteStep: function (blueprintId, stepId) {
+      return fetch(fullUrl('/api/blueprints/' + encodeURIComponent(blueprintId) + '/steps/' + encodeURIComponent(stepId)), {
+        method: 'DELETE',
+        headers: { 'If-Match': String(version) },
+      }).then(function (r) {
+        if (!r.ok) return handleErrorResponse(r);
+        return r.json();
+      }).then(function (body) {
+        if (body && typeof body.version === 'number') version = body.version;
+        return body;
+      });
+    },
+
+    deletePhase: function (blueprintId, phaseId) {
+      return fetch(fullUrl('/api/blueprints/' + encodeURIComponent(blueprintId) + '/phases/' + encodeURIComponent(phaseId)), {
+        method: 'DELETE',
+        headers: { 'If-Match': String(version) },
+      }).then(function (r) {
+        if (!r.ok) return handleErrorResponse(r);
+        return r.json();
+      }).then(function (body) {
+        if (body && typeof body.version === 'number') version = body.version;
+        return body;
+      });
+    },
+
+    createPhase: function (blueprintId, name) {
+      return fetch(fullUrl('/api/blueprints/' + encodeURIComponent(blueprintId) + '/phases'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'If-Match': String(version),
+        },
+        body: JSON.stringify({ name: name }),
+      }).then(function (r) {
+        if (!r.ok) return handleErrorResponse(r);
+        return r.json();
+      }).then(function (body) {
+        if (body && typeof body.version === 'number') version = body.version;
+        return body;
+      });
+    },
+
+    createStep: function (blueprintId, phaseId, title, isVisible) {
+      return fetch(fullUrl('/api/blueprints/' + encodeURIComponent(blueprintId) + '/steps'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'If-Match': String(version),
+        },
+        body: JSON.stringify({ phase_id: phaseId, title: title, is_visible: isVisible }),
+      }).then(function (r) {
+        if (!r.ok) return handleErrorResponse(r);
+        return r.json();
+      }).then(function (body) {
+        if (body && typeof body.version === 'number') version = body.version;
+        return body;
+      });
+    },
+
+    updateStep: function (blueprintId, stepId, fields) {
+      return fetch(fullUrl('/api/blueprints/' + encodeURIComponent(blueprintId) + '/steps/' + encodeURIComponent(stepId)), {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'If-Match': String(version),
+        },
+        body: JSON.stringify(fields),
+      }).then(function (r) {
+        if (!r.ok) return handleErrorResponse(r);
+        return r.json();
+      }).then(function (body) {
+        if (body && typeof body.version === 'number') version = body.version;
+        return body;
+      });
+    },
+
     openEventStream: function (blueprintId, onEvent, onStatusChange) {
       var source = new EventSource(fullUrl('/api/blueprints/' + encodeURIComponent(blueprintId) + '/events'));
       source.onopen = function () { onStatusChange('live'); };
@@ -241,6 +334,11 @@ function init(document, window) {
   var selectionEl = document.getElementById('selection-label');
   var toastRegion = document.getElementById('toast-region');
   var presentationToggle = document.getElementById('presentation-toggle');
+  var addPhaseBtn = document.getElementById('add-phase-btn');
+  var addStepBtn = document.getElementById('add-step-btn');
+  var toggleVisibilityBtn = document.getElementById('toggle-visibility-btn');
+  var deleteStepBtn = document.getElementById('delete-step-btn');
+  var deletePhaseBtn = document.getElementById('delete-phase-btn');
 
   function showToast(message, kind) {
     var toast = document.createElement('div');
@@ -250,6 +348,19 @@ function init(document, window) {
     window.setTimeout(function () {
       if (toast.parentNode) toast.parentNode.removeChild(toast);
     }, 4000);
+  }
+
+  /* Version-conflict recovery (T3-M4): a 412 means another writer changed
+     the blueprint. Re-fetch so the user sees the server state and can retry
+     with a fresh version instead of being stuck in a failure loop. */
+  function recoverFromConflict(err, label) {
+    if (err && err.status === 412) {
+      return loadBlueprint().then(function () {
+        showToast(label + ': someone else updated the blueprint — view refreshed, please retry.', 'error');
+      });
+    }
+    showToast(label + ': ' + (err ? err.message : 'unknown error'), 'error');
+    return Promise.resolve();
   }
 
   function setConnectionStatus(status) {
@@ -300,9 +411,12 @@ function init(document, window) {
     gridEl.appendChild(corner);
 
     state.model.phases.forEach(function (phase) {
+      /* An empty phase contributes no step columns; emitting a band for it
+         would push every later item into the wrong grid slot (T3-M2). */
+      if (phase.stepIds.length === 0) return;
       var band = document.createElement('div');
       band.className = 'phase-band';
-      band.style.gridColumn = 'span ' + Math.max(phase.stepIds.length, 1);
+      band.style.gridColumn = 'span ' + phase.stepIds.length;
       band.textContent = phase.name;
       gridEl.appendChild(band);
     });
@@ -313,6 +427,11 @@ function init(document, window) {
       header.className = 'grid-header step-header' + (step.isVisible ? '' : ' backstage');
       header.setAttribute('data-step-id', step.id);
       header.setAttribute('draggable', 'true');
+      /* Keyboard access (T3-M6): headers are focusable and selectable with
+         Enter/Space, mirroring the click behavior. */
+      header.setAttribute('tabindex', '0');
+      header.setAttribute('role', 'button');
+      header.setAttribute('aria-label', 'Step: ' + step.name);
 
       var handle = document.createElement('span');
       handle.className = 'drag-handle';
@@ -330,6 +449,12 @@ function init(document, window) {
       vis.textContent = step.isVisible ? 'frontstage' : 'backstage';
       header.appendChild(vis);
       header.addEventListener('click', function () { selectStep(step.id); });
+      header.addEventListener('keydown', function (event) {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          selectStep(step.id);
+        }
+      });
       wireStepDrag(header, step);
       gridEl.appendChild(header);
     });
@@ -410,12 +535,14 @@ function init(document, window) {
     api.reorderSteps(state.blueprintId, payload)
       .then(function () { return loadBlueprint(state.blueprintId); })
       .then(function () { showToast('Step order saved.', 'success'); })
-      .catch(function (err) { showToast('Could not reorder: ' + err.message, 'error'); });
+      .catch(function (err) { return recoverFromConflict(err, 'Could not reorder'); });
   }
 
   function buildCell(step, category) {
     var cell = document.createElement('div');
-    cell.className = 'cell';
+    /* Backstage steps render dark across the whole column, not just the
+       header (T3-Mo1). */
+    cell.className = 'cell' + (step.isVisible ? '' : ' backstage');
     cell.setAttribute('data-step-id', step.id);
     cell.setAttribute('data-category', category.id);
 
@@ -477,7 +604,7 @@ function init(document, window) {
       }
       api.updateLayerItem(state.blueprintId, item.id, next)
         .then(function () { showToast('Note updated.', 'success'); })
-        .catch(function (err) { showToast('Could not update note: ' + err.message, 'error'); });
+        .catch(function (err) { return recoverFromConflict(err, 'Could not update note'); });
     }
 
     editor.addEventListener('keydown', function (event) {
@@ -515,6 +642,17 @@ function init(document, window) {
   /* ---- Checklist sidebar ---- */
 
   function renderChecklist() {
+    /* Snapshot open forms + typed text so a live update (SSE re-render)
+       does not silently discard what the user is typing (T3-Mo2). */
+    var savedState = {};
+    checklistEl.querySelectorAll('.checklist-category').forEach(function (block) {
+      var categoryId = block.getAttribute('data-category');
+      var box = block.querySelector('textarea');
+      savedState[categoryId] = {
+        open: block.classList.contains('prompt-open'),
+        text: box ? box.value : '',
+      };
+    });
     checklistEl.textContent = '';
     LAYER_CATEGORIES.forEach(function (category) {
       var block = document.createElement('div');
@@ -567,6 +705,17 @@ function init(document, window) {
       block.appendChild(form);
       checklistEl.appendChild(block);
     });
+    /* Restore open forms + typed text after the re-render. */
+    Object.keys(savedState).forEach(function (categoryId) {
+      var saved = savedState[categoryId];
+      if (!saved.open && !saved.text) return;
+      var block = checklistEl.querySelector('[data-category="' + categoryId + '"]');
+      if (!block) return;
+      if (saved.open) block.classList.add('prompt-open');
+      var box = block.querySelector('textarea');
+      if (box && saved.text) box.value = saved.text;
+    });
+    updateToolbar();
   }
 
   function countItemsForCategory(categoryId) {
@@ -581,12 +730,92 @@ function init(document, window) {
   function selectStep(stepId) {
     state.selectedStepId = stepId;
     setSelectionLabel();
+    /* Open every category's prompt form so the guided checklist flow
+       (ui_spec.md §3) is reachable from step selection alone. */
+    checklistEl.querySelectorAll('.checklist-category').forEach(function (block) {
+      block.classList.add('prompt-open');
+    });
     var forms = checklistEl.querySelectorAll('.prompt-form button.primary');
     forms.forEach(function (button) { button.disabled = false; });
     var step = findStep(stepId);
     if (step) {
       showToast('Step selected: ' + step.name + ' — answer a prompt to add a note.', 'success');
     }
+    updateToolbar();
+  }
+
+  /* ---- Editing toolbar ---- */
+
+  function updateToolbar() {
+    var step = state.selectedStepId ? findStep(state.selectedStepId) : null;
+    addStepBtn.disabled = !step;
+    toggleVisibilityBtn.disabled = !step;
+    deleteStepBtn.disabled = !step;
+    deletePhaseBtn.disabled = !step;
+    if (step) {
+      toggleVisibilityBtn.textContent = step.isVisible ? 'Backstage' : 'Frontstage';
+    }
+  }
+
+  function wireToolbar() {
+    addPhaseBtn.addEventListener('click', function () {
+      var name = window.prompt('Phase name:');
+      if (name === null) return;
+      var check = validateTextOnly(name);
+      if (!check.ok) { showToast(check.message, 'error'); return; }
+      api.createPhase(state.blueprintId, name.trim())
+        .then(function () { return loadBlueprint(); })
+        .then(function () { showToast('Phase added.', 'success'); })
+        .catch(function (err) { return recoverFromConflict(err, 'Could not add phase'); });
+    });
+
+    addStepBtn.addEventListener('click', function () {
+      var step = state.selectedStepId ? findStep(state.selectedStepId) : null;
+      if (!step) { showToast('Select a step first — the new step joins its phase.', 'error'); return; }
+      var title = window.prompt('Step name (added to phase "' + step.phaseName + '"):');
+      if (title === null) return;
+      var check = validateTextOnly(title);
+      if (!check.ok) { showToast(check.message, 'error'); return; }
+      api.createStep(state.blueprintId, step.phaseId, title.trim(), true)
+        .then(function () { return loadBlueprint(); })
+        .then(function () { showToast('Step added to ' + step.phaseName + '.', 'success'); })
+        .catch(function (err) { return recoverFromConflict(err, 'Could not add step'); });
+    });
+
+    toggleVisibilityBtn.addEventListener('click', function () {
+      var step = state.selectedStepId ? findStep(state.selectedStepId) : null;
+      if (!step) return;
+      api.updateStep(state.blueprintId, step.id, { is_visible: !step.isVisible })
+        .then(function () { return loadBlueprint(); })
+        .then(function () { showToast('Step is now ' + (!step.isVisible ? 'frontstage' : 'backstage') + '.', 'success'); })
+        .catch(function (err) { return recoverFromConflict(err, 'Could not update step'); });
+    });
+
+    deleteStepBtn.addEventListener('click', function () {
+      var step = state.selectedStepId ? findStep(state.selectedStepId) : null;
+      if (!step) return;
+      if (!window.confirm('Delete step "' + step.name + '" and all its notes?')) return;
+      api.deleteStep(state.blueprintId, step.id)
+        .then(function () {
+          state.selectedStepId = null;
+          return loadBlueprint();
+        })
+        .then(function () { showToast('Step deleted.', 'success'); })
+        .catch(function (err) { return recoverFromConflict(err, 'Could not delete step'); });
+    });
+
+    deletePhaseBtn.addEventListener('click', function () {
+      var step = state.selectedStepId ? findStep(state.selectedStepId) : null;
+      if (!step) return;
+      if (!window.confirm('Delete phase "' + step.phaseName + '" and all its steps?')) return;
+      api.deletePhase(state.blueprintId, step.phaseId)
+        .then(function () {
+          state.selectedStepId = null;
+          return loadBlueprint();
+        })
+        .then(function () { showToast('Phase deleted.', 'success'); })
+        .catch(function (err) { return recoverFromConflict(err, 'Could not delete phase'); });
+    });
   }
 
   function submitNote(category, textarea) {
@@ -607,7 +836,7 @@ function init(document, window) {
         showToast('Note added to ' + category.label + '.', 'success');
       })
       .catch(function (err) {
-        showToast('Could not add note: ' + err.message, 'error');
+        return recoverFromConflict(err, 'Could not add note');
       })
       .then(function () {
         submitButtons.forEach(function (b) { b.disabled = false; });
@@ -669,7 +898,7 @@ function init(document, window) {
       }
       api.createLayerItem(state.blueprintId, step.id, category.id, text)
         .then(function () { showToast('Note added.', 'success'); })
-        .catch(function (err) { showToast('Could not add note: ' + err.message, 'error'); });
+        .catch(function (err) { return recoverFromConflict(err, 'Could not add note'); });
     });
   }
 
@@ -720,6 +949,12 @@ function init(document, window) {
         state.version = blueprint.version;
         api.setVersion(blueprint.version);
       }
+      /* Stale selection (T3-M5): if the selected step/phase no longer exists
+         (deleted by another writer), drop the selection instead of leaving
+         the toolbar pointed at a ghost. */
+      if (state.selectedStepId && !findStep(state.selectedStepId)) {
+        state.selectedStepId = null;
+      }
       var nameEl = document.getElementById('blueprint-name');
       nameEl.textContent = blueprint.name || blueprint.title || state.blueprintId;
       setVersionLabel();
@@ -727,10 +962,12 @@ function init(document, window) {
       applyColumnWidths();
       renderChecklist();
       setSelectionLabel();
+      updateToolbar();
     });
   }
 
   function boot() {
+    wireToolbar();
     api.listBlueprints().then(function (payload) {
       var list = Array.isArray(payload) ? payload : (payload && payload.blueprints) || [];
       if (list.length === 0) {

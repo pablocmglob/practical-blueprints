@@ -57,10 +57,33 @@ function broadcast(blueprintId, event) {
 function handleNotify(req, res, blueprintId) {
   readBody(req)
     .then((event) => {
+      // Hardening (T2-M5): the notify route is the MCP bridge's write path
+      // into SSE. Reject anything that could spoof or split frames.
+      if (!event || typeof event !== "object" || Array.isArray(event)) {
+        throw new HttpError(400, "notify payload must be a JSON object");
+      }
+      const KNOWN_EVENT_TYPES = new Set([
+        "phase_created", "phase_updated", "phase_deleted",
+        "step_created", "step_updated", "step_deleted",
+        "layer_item_created", "layer_item_updated", "layer_item_deleted",
+        "blueprint_deleted", "reordered",
+      ]);
+      if (typeof event.type !== "string" || !KNOWN_EVENT_TYPES.has(event.type)) {
+        throw new HttpError(400, `unknown event type '${event.type}'`);
+      }
+      if (/[\r\n]/.test(event.type)) {
+        throw new HttpError(400, "event type must not contain newlines");
+      }
       broadcast(blueprintId, event);
       sendJson(res, 200, { notified: true });
     })
-    .catch(() => sendJson(res, 400, { error: "invalid notify payload" }));
+    .catch((err) => {
+      if (err instanceof HttpError) {
+        sendJson(res, err.status, { error: err.message });
+      } else {
+        sendJson(res, 400, { error: "invalid notify payload" });
+      }
+    });
 }
 
 class HttpError extends Error {
@@ -84,11 +107,16 @@ function sendJson(res, status, body, headers) {
 function readBody(req) {
   return new Promise((resolve, reject) => {
     let raw = "";
+    let tooLarge = false;
     req.on("data", (c) => {
+      if (tooLarge) return; // drain the rest so the 413 can flush (T2-M7)
       raw += c;
       if (raw.length > 1_000_000) {
+        tooLarge = true;
+        raw = "";
         reject(new HttpError(413, "request body too large"));
-        req.destroy();
+        // Do NOT destroy the socket here — the response would never reach
+        // the client. The remaining body is drained above.
       }
     });
     req.on("end", () => {
@@ -173,6 +201,11 @@ function handleCreateBlueprint(req, res) {
     if (!["CURRENT_STATE", "FUTURE_STATE"].includes(body.state_type)) {
       throw new HttpError(400, "state_type must be CURRENT_STATE or FUTURE_STATE");
     }
+    if (typeof body.name !== "string" || body.name.trim().length === 0) {
+      throw new HttpError(400, "name must be a non-empty string");
+    }
+    const nameCheck = validateTextContent(body.name);
+    if (!nameCheck.ok) throw new HttpError(400, nameCheck.reason);
     const result = db
       .prepare("INSERT INTO blueprints (name, state_type) VALUES (?, ?)")
       .run(String(body.name), body.state_type);
@@ -193,12 +226,25 @@ function handleGetBlueprint(res, id) {
   sendJson(res, 200, hierarchy, { etag: String(hierarchy.version) });
 }
 
+function handleDeleteBlueprint(res, id) {
+  const hierarchy = getBlueprintHierarchy(db, id);
+  if (!hierarchy) throw new HttpError(404, `blueprint ${id} not found`);
+  db.prepare("DELETE FROM blueprints WHERE id = ?").run(id);
+  broadcast(id, { type: "blueprint_deleted", blueprint_id: id });
+  sendJson(res, 200, { deleted: id });
+}
+
 function handleCreatePhase(req, res, id) {
   const blueprint = getBlueprint(db, id);
   if (!blueprint) throw new HttpError(404, `blueprint ${id} not found`);
   return readBody(req).then((body) => {
     requireFields(body, ["name"]);
     checkVersion(req, body, blueprint);
+    if (body.display_order !== undefined && !Number.isFinite(Number(body.display_order))) {
+      throw new HttpError(400, `invalid display_order '${body.display_order}'`, { current_version: blueprint.version });
+    }
+    const nameCheck = validateTextContent(body.name);
+    if (!nameCheck.ok) throw new HttpError(400, nameCheck.reason, { current_version: blueprint.version });
     const maxOrder = db
       .prepare("SELECT COALESCE(MAX(display_order), -1) AS m FROM phases WHERE blueprint_id = ?")
       .get(id).m;
@@ -218,6 +264,11 @@ function handleCreateStep(req, res, id) {
   return readBody(req).then((body) => {
     requireFields(body, ["phase_id", "title"]);
     checkVersion(req, body, blueprint);
+    if (body.display_order !== undefined && !Number.isFinite(Number(body.display_order))) {
+      throw new HttpError(400, `invalid display_order '${body.display_order}'`, { current_version: blueprint.version });
+    }
+    const titleCheck = validateTextContent(body.title);
+    if (!titleCheck.ok) throw new HttpError(400, titleCheck.reason, { current_version: blueprint.version });
     const phase = db
       .prepare("SELECT * FROM phases WHERE id = ? AND blueprint_id = ?")
       .get(Number(body.phase_id), id);
@@ -352,6 +403,24 @@ function handlePatch(req, res, id, kind, childId) {
       sendJson(res, 200, { step, version });
       return;
     }
+    if (kind === "phases") {
+      const row = db
+        .prepare("SELECT id FROM phases WHERE id = ? AND blueprint_id = ?")
+        .get(childId, id);
+      if (!row) throw new HttpError(404, `phases/${childId} not found in blueprint ${id}`);
+      if (body.name === undefined) throw new HttpError(400, "missing required field 'name'");
+      if (typeof body.name !== "string" || body.name.trim().length === 0) {
+        throw new HttpError(400, "name must be a non-empty string", { current_version: blueprint.version });
+      }
+      const nameCheck = validateTextContent(body.name);
+      if (!nameCheck.ok) throw new HttpError(400, nameCheck.reason, { current_version: blueprint.version });
+      db.prepare("UPDATE phases SET name = ? WHERE id = ?").run(String(body.name), childId);
+      const phase = db.prepare("SELECT * FROM phases WHERE id = ?").get(Number(childId));
+      const version = bumpVersion(db, id);
+      broadcast(id, { type: "phase_updated", blueprint_id: id, phase, version });
+      sendJson(res, 200, { phase, version });
+      return;
+    }
     throw new HttpError(400, `PATCH not supported for '${kind}'`);
   });
 }
@@ -474,6 +543,7 @@ const server = http.createServer((req, res) => {
         const id = Number(parts[2]);
         const rest = parts.slice(3).join("/");
         if (rest === "" && req.method === "GET") return handleGetBlueprint(res, id);
+        if (rest === "" && req.method === "DELETE") return handleDeleteBlueprint(res, id);
         if (rest === "phases" && req.method === "POST") return await handleCreatePhase(req, res, id);
         if (rest === "steps" && req.method === "POST") return await handleCreateStep(req, res, id);
         if (rest === "layer-items" && req.method === "POST") return await handleCreateLayerItem(req, res, id);

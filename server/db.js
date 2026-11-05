@@ -117,6 +117,10 @@ function openDatabase(dbPath) {
   fs.mkdirSync(path.dirname(resolved), { recursive: true });
   const db = new DatabaseSync(resolved);
   db.exec("PRAGMA foreign_keys = ON;");
+  // Two writer processes share this file (HTTP server + MCP stdio server).
+  // Without a busy timeout, any write contention surfaces as an unhandled
+  // "database is locked" error → 500 (T2-M2).
+  db.exec("PRAGMA busy_timeout = 5000;");
   db.exec(SCHEMA_SQL);
   return db;
 }

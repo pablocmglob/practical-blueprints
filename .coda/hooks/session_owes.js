@@ -15,11 +15,18 @@ const ROOT = path.resolve(process.cwd());
 function main(phase) {
   const lines = [];
   try {
-    const inFlight = path.join(ROOT, ".tasks", "IN_FLIGHT.md");
-    if (fs.existsSync(inFlight)) {
-      const text = fs.readFileSync(inFlight, "utf8");
-      const inProgress = (text.match(/State:\s*In Progress/g) || []).length;
-      if (phase === "stop" && inProgress > 0) {
+    // Stop-check scans the actual task files (root of .tasks/), not just
+    // IN_FLIGHT.md — the queue table there is not where task state lives.
+    if (phase === "stop" && fs.existsSync(path.join(ROOT, ".tasks"))) {
+      const taskFiles = fs
+        .readdirSync(path.join(ROOT, ".tasks"))
+        .filter((f) => /^task-.*\.md$/.test(f));
+      let inProgress = 0;
+      for (const f of taskFiles) {
+        const text = fs.readFileSync(path.join(ROOT, ".tasks", f), "utf8");
+        if (/^State:\s*In Progress/m.test(text)) inProgress++;
+      }
+      if (inProgress > 0) {
         lines.push(`session-owes: ${inProgress} task(s) still In Progress — move them to the right state before ending.`);
       }
     }

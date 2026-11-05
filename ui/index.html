@@ -17,6 +17,13 @@
       Select a step on the canvas, then answer a category prompt to add a
       text sticky note. Text only — file uploads are not supported.
     </div>
+    <div id="edit-toolbar" role="toolbar" aria-label="Blueprint editing tools">
+      <button id="add-phase-btn" type="button" title="Add a new phase (X axis group)">+ Phase</button>
+      <button id="add-step-btn" type="button" title="Add a new step to the selected phase" disabled>+ Step</button>
+      <button id="toggle-visibility-btn" type="button" title="Toggle frontstage/backstage for the selected step" disabled>Backstage</button>
+      <button id="delete-step-btn" type="button" title="Delete the selected step (and its notes)" disabled>Delete step</button>
+      <button id="delete-phase-btn" type="button" title="Delete the phase of the selected step" disabled>Delete phase</button>
+    </div>
     <div id="checklist" role="list" aria-label="Layer category checklist"></div>
   </aside>
 

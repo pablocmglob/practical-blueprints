@@ -46,9 +46,17 @@ function broadcastViaHttp(blueprintId, event) {
     },
     (res) => {
       res.resume(); // drain
+      if (res.statusCode !== 200) {
+        // Notify rejected (bad port, hardened allowlist, …) — never silent,
+        // otherwise MCP writes become invisible to SSE clients (T2-M1).
+        console.error(`[mcp] notify POST failed: HTTP ${res.statusCode}`);
+      }
     }
   );
-  req.on("error", () => {}); // HTTP server not running — no-op
+  req.on("error", (err) => {
+    // HTTP server not running or wrong port — log so the drop is visible (T2-M1).
+    console.error(`[mcp] notify POST to 127.0.0.1:${NOTIFY_PORT} failed: ${err.message}`);
+  });
   req.end(data);
 }
 broadcast = broadcastViaHttp;

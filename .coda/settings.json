@@ -1,41 +1,41 @@
 {
-  "_comment": "Shared, committed hook policy. Runs for every session in this repo. Hooks are policy, not suggestions: fix the cause or record a bypass with a reason; never disable a hook.",
+  "_comment": "Shared, committed hook policy. Runs for every session in this repo. Hooks are policy, not suggestions: fix the cause or record a bypass with a reason; never disable a hook. Node is pinned to its absolute path because it is not on PATH in the documented environment (CODA.md).",
   "hooks": {
     "PreToolUse": [
       {
         "matcher": "Bash",
-        "command": "node .coda/hooks/secret_scan.js",
+        "command": "\"C:\\Program Files\\nodejs\\node.exe\" .coda/hooks/secret_scan.js",
         "when": "git commit",
         "description": "Secret scan of staged files before any commit"
       },
       {
         "matcher": "Edit|Write",
-        "command": "node .coda/hooks/guarded_notice.js",
+        "command": "\"C:\\Program Files\\nodejs\\node.exe\" .coda/hooks/guarded_notice.js",
         "notice": true,
         "description": "Non-blocking notice when the file is guarded"
       },
       {
         "matcher": "Edit|Write",
-        "command": "node .coda/hooks/task_session_guard.js",
+        "command": "\"C:\\Program Files\\nodejs\\node.exe\" .coda/hooks/task_session_guard.js",
         "description": "Blocks the first edit until the session has claimed a task (fails open; on-the-record bypass with a reason)"
       }
     ],
     "PostToolUse": [
       {
         "matcher": "Edit|Write",
-        "command": "node --check <file>",
+        "command": "\"C:\\Program Files\\nodejs\\node.exe\" --check <file>",
         "description": "Syntax check (fast lint) for the touched JS file"
       }
     ],
     "SessionStart": [
       {
-        "command": "node .coda/hooks/session_owes.js start",
+        "command": "\"C:\\Program Files\\nodejs\\node.exe\" .coda/hooks/session_owes.js start",
         "description": "Check what the session owes the task tracker at start"
       }
     ],
     "Stop": [
       {
-        "command": "node .coda/hooks/session_owes.js stop",
+        "command": "\"C:\\Program Files\\nodejs\\node.exe\" .coda/hooks/session_owes.js stop",
         "description": "Check what the session owes the task tracker at stop"
       }
     ]
