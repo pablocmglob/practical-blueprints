@@ -32,3 +32,17 @@ state it, and any deviation from the plan.
   the clean checkout (CRLF artifact) and belongs to the T1 file set.
 - Docs: BEHAVIOUR_REFERENCE.md entries for db.js, index.js, mcp.js, seed.js,
   smoke_backend.js.
+
+- **T5 — MCP full editing surface.** `server/mcp.js` now exposes every action
+  performable by the web UI as MCP tools, in addition to the original three:
+  `list_blueprints`, `create_blueprint`, `delete_blueprint` (cascade),
+  `create_phase` / `update_phase` / `delete_phase` (cascade),
+  `create_step` / `update_step` / `delete_step`,
+  `update_layer_item` (text-only gate) / `delete_layer_item`, and
+  `reorder_steps` (ownership-checked). Every mutation uses the shared
+  validators, bumps the blueprint version, and POSTs to the notify bridge
+  (`source: "mcp"`) so SSE subscribers update live.
+- Tests added: `tests/qa/mcp_full_surface.test.js` (9 tests, red-first:
+  failed with "missing MCP tool 'list_blueprints'" before implementation).
+- Docs: BEHAVIOUR_REFERENCE.md `server/mcp.js` section rewritten for the
+  full surface.

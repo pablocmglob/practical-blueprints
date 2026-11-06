@@ -132,7 +132,7 @@ methods `initialize`, `tools/list`, `tools/call` (plus
 `notifications/initialized`, ignored). Uses the same database as the HTTP
 server (`BB_DB_PATH` / `server/blueprints.db`).
 
-**Returns:** exactly three tools:
+**Returns:** the full editing surface of the web UI as tools:
 - `get_blueprint_schema(blueprint_id)` → full hierarchical JSON.
 - `add_layer_item(step_id, layer_category, content[, owner_id])` → validates
   category vs the parent blueprint's state_type with the SAME shared
@@ -145,9 +145,24 @@ server (`BB_DB_PATH` / `server/blueprints.db`).
   POTENTIAL_PITFALL item becomes one entry bundling `item`, `step` (id,
   title, is_visible, display_order, phase_name) and `sibling_items` (ALL
   other layer items on that step).
+- Blueprint lifecycle (T5): `list_blueprints()` → all rows;
+  `create_blueprint(name, state_type)` → `{blueprint, version}`;
+  `delete_blueprint(blueprint_id)` → cascade erase, irreversible.
+- Phases (T5): `create_phase(blueprint_id, name)` (appended);
+  `update_phase(blueprint_id, phase_id, name)` (rename);
+  `delete_phase(blueprint_id, phase_id)` (cascade).
+- Steps (T5): `create_step(blueprint_id, phase_id, title[, is_visible])`
+  (appended within the phase); `update_step(blueprint_id, step_id[, title][,
+  is_visible])`; `delete_step(blueprint_id, step_id)`.
+- Layer items (T5): `update_layer_item(blueprint_id, layer_item_id, content)`
+  (text-only gate applies); `delete_layer_item(blueprint_id, layer_item_id)`.
+- Ordering (T5): `reorder_steps(blueprint_id, steps[{id, display_order}])` —
+  every id must belong to the blueprint.
 
-**Side effects:** `add_layer_item` inserts and bumps the blueprint version
-(observable by the REST API's next If-Match).
+**Side effects:** every mutation inserts/updates/deletes and bumps the
+blueprint version (observable by the REST API's next If-Match), and POSTs
+the event to the notify bridge (`source: "mcp"`) so SSE subscribers update
+live.
 
 **Edge cases:** unknown tool → `-32602`; HTTP-400-semantics failures map to
 `-32600` with the "400 Bad Request: ..." message; 404s also map to `-32600`;
