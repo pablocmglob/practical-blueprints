@@ -296,3 +296,59 @@ test('UI exposes the full editing toolbar and prompt forms open on selection', (
   // Backstage cells render dark (T3-Mo1).
   assert.ok(css.includes('.cell.backstage'), 'backstage cell CSS present');
 });
+
+/* ---------- contextual grid affordances (T3-M7) ---------- */
+
+test('every editing function is contextually placed in the blueprint grid', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const js = fs.readFileSync(path.join(__dirname, '..', '..', 'ui', 'app.js'), 'utf8');
+  const css = fs.readFileSync(path.join(__dirname, '..', '..', 'ui', 'styles.css'), 'utf8');
+
+  // Add a step next to each step: hover + button on step headers.
+  assert.ok(js.includes('step-add-next'), 'hover + button on step headers');
+  assert.ok(js.includes('addStepAfter'), 'insert-after helper present');
+  assert.ok(css.includes('.step-add-next'), 'hover + button CSS present');
+
+  // Edit a card by clicking it (inline textarea editor).
+  assert.ok(js.includes('startEdit'), 'click-to-edit card editor present');
+  assert.ok(js.includes('note-editor'), 'inline note editor present');
+
+  // Delete a card: hover × on sticky notes.
+  assert.ok(js.includes('note-delete'), 'hover × delete on cards');
+  assert.ok(js.includes('deleteLayerItem'), 'note delete API wired');
+  assert.ok(css.includes('.note-delete'), 'note delete CSS present');
+
+  // Add a card by clicking the empty space of a cell (inline composer).
+  assert.ok(js.includes('openCellComposer'), 'empty-cell click composer present');
+  assert.ok(js.includes('cell-composer'), 'inline cell composer markup');
+  assert.ok(css.includes('.cell-composer'), 'cell composer CSS present');
+
+  // Rename step: double-click header (PATCH steps {title}).
+  assert.ok(js.includes('renameStep'), 'double-click step rename present');
+  assert.ok(js.includes("updateStep"), 'step PATCH API wired');
+
+  // Rename phase: double-click band (PATCH phases {name}).
+  assert.ok(js.includes('renamePhase'), 'double-click phase rename present');
+  assert.ok(js.includes('updatePhase'), 'phase PATCH API wired');
+
+  // Delete phase: hover × on the band.
+  assert.ok(js.includes('phase-delete'), 'hover × delete on phase bands');
+  assert.ok(css.includes('.phase-delete'), 'phase delete CSS present');
+
+  // Add phase: + button at the end of the band row.
+  assert.ok(js.includes('grid-add-phase'), 'grid + Phase button present');
+  assert.ok(css.includes('.grid-add-phase'), 'grid + Phase CSS present');
+
+  // Empty phases stay visible with a contextual + Step button.
+  assert.ok(js.includes('empty-phase-header'), 'empty phase placeholder emitted');
+  assert.ok(js.includes('empty-phase-add'), 'empty phase + Step button present');
+  assert.ok(css.includes('.empty-phase-header'), 'empty phase CSS present');
+
+  // Presentation mode hides every contextual editing affordance.
+  ['step-add-next', 'note-delete', 'phase-delete', 'grid-add-phase', 'empty-phase-add', 'cell-composer']
+    .forEach((cls) => assert.ok(
+      css.includes(`body.presenting .${cls}`),
+      `presentation mode hides .${cls}`
+    ));
+});

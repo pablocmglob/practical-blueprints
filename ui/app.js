@@ -63,6 +63,7 @@ function buildGridModel(blueprint) {
         phaseName: phaseEntry.name,
         name: step.name || step.title || 'Untitled step',
         isVisible: step.is_visible !== false, // true = frontstage
+        displayOrder: typeof step.display_order === 'number' ? step.display_order : 0,
         itemCount: 0,
       };
       var items = Array.isArray(step.layer_items) ? step.layer_items : [];
@@ -264,14 +265,33 @@ function createApiClient(baseUrl) {
       });
     },
 
-    createStep: function (blueprintId, phaseId, title, isVisible) {
+    createStep: function (blueprintId, phaseId, title, isVisible, displayOrder) {
+      var payload = { phase_id: phaseId, title: title, is_visible: isVisible };
+      if (typeof displayOrder === 'number') payload.display_order = displayOrder;
       return fetch(fullUrl('/api/blueprints/' + encodeURIComponent(blueprintId) + '/steps'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'If-Match': String(version),
         },
-        body: JSON.stringify({ phase_id: phaseId, title: title, is_visible: isVisible }),
+        body: JSON.stringify(payload),
+      }).then(function (r) {
+        if (!r.ok) return handleErrorResponse(r);
+        return r.json();
+      }).then(function (body) {
+        if (body && typeof body.version === 'number') version = body.version;
+        return body;
+      });
+    },
+
+    updatePhase: function (blueprintId, phaseId, fields) {
+      return fetch(fullUrl('/api/blueprints/' + encodeURIComponent(blueprintId) + '/phases/' + encodeURIComponent(phaseId)), {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'If-Match': String(version),
+        },
+        body: JSON.stringify(fields),
       }).then(function (r) {
         if (!r.ok) return handleErrorResponse(r);
         return r.json();
@@ -399,7 +419,10 @@ function init(document, window) {
     }
     emptyEl.hidden = true;
 
-    var totalColumns = state.model.steps.length;
+    var emptyPhaseCount = state.model.phases.filter(function (p) {
+      return p.stepIds.length === 0;
+    }).length;
+    var totalColumns = state.model.steps.length + emptyPhaseCount;
     gridEl.style.gridTemplateColumns =
       'var(--row-label-width) repeat(' + totalColumns + ', max-content)';
 
@@ -411,17 +434,81 @@ function init(document, window) {
     gridEl.appendChild(corner);
 
     state.model.phases.forEach(function (phase) {
-      /* An empty phase contributes no step columns; emitting a band for it
-         would push every later item into the wrong grid slot (T3-M2). */
-      if (phase.stepIds.length === 0) return;
       var band = document.createElement('div');
       band.className = 'phase-band';
-      band.style.gridColumn = 'span ' + phase.stepIds.length;
+      band.style.gridColumn = 'span ' + Math.max(phase.stepIds.length, 1);
       band.textContent = phase.name;
+      band.title = 'Double-click to rename this phase';
+      /* Contextual phase editing: double-click renames, hover × deletes. */
+      band.addEventListener('dblclick', function () { renamePhase(phase); });
+      var bandDel = document.createElement('button');
+      bandDel.type = 'button';
+      bandDel.className = 'phase-delete';
+      bandDel.title = 'Delete phase "' + phase.name + '" and all its steps';
+      bandDel.setAttribute('aria-label', 'Delete phase ' + phase.name);
+      bandDel.textContent = '×';
+      bandDel.addEventListener('click', function (event) {
+        event.stopPropagation();
+        if (!window.confirm('Delete phase "' + phase.name + '" and all its steps?')) return;
+        api.deletePhase(state.blueprintId, phase.id)
+          .then(function () {
+            state.selectedStepId = null;
+            return loadBlueprint();
+          })
+          .then(function () { showToast('Phase deleted.', 'success'); })
+          .catch(function (err) { return recoverFromConflict(err, 'Could not delete phase'); });
+      });
+      band.appendChild(bandDel);
       gridEl.appendChild(band);
+
+      /* Empty phase: emit a placeholder header with a contextual
+         "+ Step" button so the phase is visible and its first step is
+         reachable from the grid itself (T3-M7). The band spans exactly
+         one column, keeping grid slots aligned. */
+      if (phase.stepIds.length === 0) {
+        var placeholder = document.createElement('div');
+        placeholder.className = 'grid-header step-header empty-phase-header';
+        var addFirst = document.createElement('button');
+        addFirst.type = 'button';
+        addFirst.className = 'empty-phase-add';
+        addFirst.title = 'Add the first step to "' + phase.name + '"';
+        addFirst.setAttribute('aria-label', 'Add first step to ' + phase.name);
+        addFirst.textContent = '+ Step';
+        addFirst.addEventListener('click', function () {
+          var title = window.prompt('Step name (first step of "' + phase.name + '"):');
+          if (title === null) return;
+          var check = validateTextOnly(title);
+          if (!check.ok) { showToast(check.message, 'error'); return; }
+          api.createStep(state.blueprintId, phase.id, title.trim(), true)
+            .then(function () { return loadBlueprint(); })
+            .then(function () { showToast('Step added to ' + phase.name + '.', 'success'); })
+            .catch(function (err) { return recoverFromConflict(err, 'Could not add step'); });
+        });
+        placeholder.appendChild(addFirst);
+        gridEl.appendChild(placeholder);
+      }
     });
 
     // Row 2: step headers.
+    /* Contextual add-phase: a slim + button at the end of the band row. */
+    var addPhaseCell = document.createElement('button');
+    addPhaseCell.type = 'button';
+    addPhaseCell.className = 'grid-add-phase';
+    addPhaseCell.title = 'Add a new phase at the end';
+    addPhaseCell.setAttribute('aria-label', 'Add a new phase');
+    addPhaseCell.textContent = '+ Phase';
+    addPhaseCell.addEventListener('click', function () {
+      var name = window.prompt('Phase name:');
+      if (name === null) return;
+      var check = validateTextOnly(name);
+      if (!check.ok) { showToast(check.message, 'error'); return; }
+      api.createPhase(state.blueprintId, name.trim())
+        .then(function () { return loadBlueprint(); })
+        .then(function () { showToast('Phase added.', 'success'); })
+        .catch(function (err) { return recoverFromConflict(err, 'Could not add phase'); });
+    });
+    gridEl.appendChild(addPhaseCell);
+
     state.model.steps.forEach(function (step) {
       var header = document.createElement('div');
       header.className = 'grid-header step-header' + (step.isVisible ? '' : ' backstage');
@@ -448,7 +535,28 @@ function init(document, window) {
       vis.className = 'step-visibility';
       vis.textContent = step.isVisible ? 'frontstage' : 'backstage';
       header.appendChild(vis);
+
+      /* Contextual add-step: hovering a header reveals a + button that
+         inserts a new step directly after this one (same phase). */
+      var addNext = document.createElement('button');
+      addNext.type = 'button';
+      addNext.className = 'step-add-next';
+      addNext.title = 'Add a step after "' + step.name + '"';
+      addNext.setAttribute('aria-label', 'Add a step after ' + step.name);
+      addNext.textContent = '+';
+      addNext.addEventListener('click', function (event) {
+        event.stopPropagation();
+        addStepAfter(step);
+      });
+      header.appendChild(addNext);
+
       header.addEventListener('click', function () { selectStep(step.id); });
+      /* Contextual rename: double-click (or Enter on the name) edits the
+         step title in place via PATCH steps {title}. */
+      header.addEventListener('dblclick', function (event) {
+        event.preventDefault();
+        renameStep(step);
+      });
       header.addEventListener('keydown', function (event) {
         if (event.key === 'Enter' || event.key === ' ') {
           event.preventDefault();
@@ -552,8 +660,56 @@ function init(document, window) {
       cell.appendChild(buildStickyNote(item, category));
     });
 
+    /* Contextual add-note: clicking the empty white space of a cell opens
+       an inline composer for that cell's step × category. */
+    cell.addEventListener('click', function (event) {
+      if (event.target !== cell) return; // only the empty space itself
+      openCellComposer(cell, step, category);
+    });
+    cell.setAttribute('title', 'Click empty space to add a ' + category.label + ' note');
+
     wireDropZone(cell, step, category);
     return cell;
+  }
+
+  /* Inline note composer: a textarea appears in the cell; Enter commits
+     (POST layer-items), Escape discards. */
+  function openCellComposer(cell, step, category) {
+    if (cell.querySelector('.cell-composer')) return;
+    var composer = document.createElement('div');
+    composer.className = 'cell-composer';
+    var textarea = document.createElement('textarea');
+    textarea.className = 'cell-composer-input';
+    textarea.placeholder = 'New ' + category.label + ' note… (Enter to add, Esc to cancel)';
+    textarea.setAttribute('aria-label', 'New ' + category.label + ' note for ' + step.name);
+    composer.appendChild(textarea);
+    cell.appendChild(composer);
+    textarea.focus();
+
+    function commit() {
+      if (!textarea.parentNode) return;
+      var value = textarea.value;
+      composer.remove();
+      var check = validateTextOnly(value);
+      if (!check.ok) { showToast(check.message, 'error'); return; }
+      api.createLayerItem(state.blueprintId, step.id, category.id, value.trim())
+        .then(function () { showToast('Note added to ' + category.label + '.', 'success'); })
+        .catch(function (err) { return recoverFromConflict(err, 'Could not add note'); });
+    }
+
+    textarea.addEventListener('keydown', function (event) {
+      if (event.key === 'Enter' && !event.shiftKey) {
+        event.preventDefault();
+        commit();
+      } else if (event.key === 'Escape') {
+        composer.remove();
+      }
+    });
+    textarea.addEventListener('blur', function () {
+      /* Commit on blur only if the user typed something. */
+      if (textarea.value.trim().length > 0) commit();
+      else composer.remove();
+    });
   }
 
   function buildStickyNote(item, category) {
@@ -572,6 +728,22 @@ function init(document, window) {
     textEl.className = 'note-text';
     textEl.textContent = item.content;
     note.appendChild(textEl);
+
+    /* Contextual delete: hovering a card reveals an × button (top-right). */
+    var del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'note-delete';
+    del.title = 'Delete this note';
+    del.setAttribute('aria-label', 'Delete note');
+    del.textContent = '×';
+    del.addEventListener('click', function (event) {
+      event.stopPropagation();
+      if (!window.confirm('Delete this note?')) return;
+      api.deleteLayerItem(state.blueprintId, item.id)
+        .then(function () { showToast('Note deleted.', 'success'); })
+        .catch(function (err) { return recoverFromConflict(err, 'Could not delete note'); });
+    });
+    note.appendChild(del);
 
     /* Click-to-edit: swap the text for a textarea in place (no modal). */
     note.addEventListener('click', function (event) {
@@ -742,6 +914,48 @@ function init(document, window) {
       showToast('Step selected: ' + step.name + ' — answer a prompt to add a note.', 'success');
     }
     updateToolbar();
+  }
+
+  /* Contextual phase rename: prompt and PATCH phases {name}. */
+  function renamePhase(phase) {
+    var name = window.prompt('Rename phase "' + phase.name + '":', phase.name);
+    if (name === null) return;
+    var trimmed = name.trim();
+    if (trimmed === phase.name) return;
+    var check = validateTextOnly(trimmed);
+    if (!check.ok) { showToast(check.message, 'error'); return; }
+    api.updatePhase(state.blueprintId, phase.id, { name: trimmed })
+      .then(function () { return loadBlueprint(); })
+      .then(function () { showToast('Phase renamed.', 'success'); })
+      .catch(function (err) { return recoverFromConflict(err, 'Could not rename phase'); });
+  }
+
+  /* Contextual rename: prompt for a new title and PATCH steps {title}. */
+  function renameStep(step) {
+    var title = window.prompt('Rename step "' + step.name + '":', step.name);
+    if (title === null) return;
+    var trimmed = title.trim();
+    if (trimmed === step.name) return;
+    var check = validateTextOnly(trimmed);
+    if (!check.ok) { showToast(check.message, 'error'); return; }
+    api.updateStep(state.blueprintId, step.id, { title: trimmed })
+      .then(function () { return loadBlueprint(); })
+      .then(function () { showToast('Step renamed.', 'success'); })
+      .catch(function (err) { return recoverFromConflict(err, 'Could not rename step'); });
+  }
+
+  /* Contextual add-step: insert a new step directly after `anchor` in the
+     same phase. Uses display_order = anchor.order + 1; the server keeps
+     relative order stable (ORDER BY display_order, id). */
+  function addStepAfter(anchor) {
+    var title = window.prompt('Step name (inserted after "' + anchor.name + '" in phase "' + anchor.phaseName + '"):');
+    if (title === null) return;
+    var check = validateTextOnly(title);
+    if (!check.ok) { showToast(check.message, 'error'); return; }
+    api.createStep(state.blueprintId, anchor.phaseId, title.trim(), true, anchor.displayOrder + 1)
+      .then(function () { return loadBlueprint(); })
+      .then(function () { showToast('Step inserted after ' + anchor.name + '.', 'success'); })
+      .catch(function (err) { return recoverFromConflict(err, 'Could not add step'); });
   }
 
   /* ---- Editing toolbar ---- */
